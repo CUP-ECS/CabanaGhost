@@ -213,7 +213,29 @@ void life( ClArgs& cl )
     MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); // Number of Ranks
     MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // Get My Rank
 
-    Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitioner
+    double cell_size = 1.0;
+    // Create global mesh bounds.
+    std::array<double, 2> global_low_corner, global_high_corner;
+    for ( int d = 0; d < 2; ++d )
+    {
+        global_low_corner[d] = 0.0;
+        global_high_corner[d] = cl.numcells;
+    }
+                                                                                                                            // Create the global mesh.
+    auto global_mesh = Cabana::Grid::createUniformGlobalMesh(
+                           global_low_corner, global_high_corner, num_cell );
+
+    // Build the mesh partitioner and global grid.
+    std::array<bool, Dim> periodic = {true, true};
+    Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitinoer
+    auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
+                           periodic, partitioner );
+    // Build the local grid.
+    auto local_grid = Cabana::Grid::createLocalGrid( global_grid, 1 );
+    // Build the local mesh. XXX Why is this hard to share? Is it expensive?
+    auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *_local_grid );
+    _local_mesh = std::make_shared<Cabana::Grid::LocalMesh<memory_space, mesh_type>>( local_mesh );
+    MPI_Comm_rank( comm, &_rank );
     MeshInitFunc<2> initializer( 0.0, { 0.0, 0.0 } );
 }
 

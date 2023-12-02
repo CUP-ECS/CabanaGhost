@@ -12,9 +12,9 @@
 
 // Include Statements
 
+#include <Kokkos_Core.hpp>
 #include <Cabana_Core.hpp>
 #include <Cabana_Grid.hpp>
-#include <Kokkos_Core.hpp>
 
 #include <mpi.h>
 
@@ -30,11 +30,10 @@
 
 using namespace Cabana::Grid;
 
-// Short Args: n - Cell Count, s - Domain Size,
+// Short Args: n - Cell Count
 // x - On-node Parallelism ( Serial/Threaded/OpenMP/CUDA ),
-// t - Time Steps, w - Write Frequency
-// d - Input Density, i - Input Location, v - Inflow Velocity
-static char* shortargs = (char*)"n:s:t:i:d:g:p:m:c:x:y:w:h:q:u:v:";
+// t - Time Steps, F - Write Frequency
+static char* shortargs = (char*)"n:t:x:F:h";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -78,7 +77,6 @@ void help( const int rank, char* progname )
                   << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-F" << std::setw( 40 )
                   << "Write Frequency (default 20)" << std::left << "\n";
-
         std::cout << std::left << std::setw( 10 ) << "-h" << std::setw( 40 )
                   << "Print Help Message" << std::left << "\n";
     }
@@ -103,7 +101,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.device = "serial"; // Default Thread Setting
 
     cl.t_final = 100;
-    cl.write_freq = 10;
+    cl.write_freq = 1;
     cl.global_num_cells = { 128, 128 };
 
     int ch;
@@ -153,7 +151,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 exit( -1 );
             }
             break;
-        case 'w':
+        case 'F':
             cl.write_freq = atoi( optarg );
             if ( cl.write_freq < 0 )
             {
@@ -189,58 +187,26 @@ template <std::size_t Dim>
 struct MeshInitFunc
 {
     // Initialize Variables
-    double _q, _u[Dim];
+    double _q;
 
     MeshInitFunc( double q, std::array<double, Dim> u )
         : _q( q )
     {
-        _u[0] = u[0];
-        _u[1] = u[1];
     };
 
     KOKKOS_INLINE_FUNCTION
-    bool operator()( Cabana::Grid::Cell, Cabana::GridFluids::Field::Quantity,
+    bool operator()( Cabana::Grid::Cell, CabanaGOL::Field::Liveness,
                      [[maybe_unused]] const int index[Dim],
                      [[maybe_unused]] const double x[Dim],
-                     double& quantity ) const
+                     double& liveness ) const
     {
-        quantity = _q;
+        liveness = _q;
 
         return true;
     };
-    KOKKOS_INLINE_FUNCTION
-    bool operator()( Cabana::Grid::Face<Cabana::Grid::Dim::I>,
-                     Cabana::GridFluids::Field::Velocity,
-                     [[maybe_unused]] const int index[Dim],
-                     [[maybe_unused]] const double x[Dim],
-                     double& xvelocity ) const
-    {
-        xvelocity = _u[0];
-        return true;
-    };
-    KOKKOS_INLINE_FUNCTION
-    bool operator()( Cabana::Grid::Face<Cabana::Grid::Dim::J>,
-                     Cabana::GridFluids::Field::Velocity,
-                     [[maybe_unused]] const int index[Dim],
-                     [[maybe_unused]] const double x[Dim],
-                     double& yvelocity ) const
-    {
-        yvelocity = _u[1];
-        return true;
-    }
-#if 0
-    KOKKOS_INLINE_FUNCTION
-    bool operator()( Cabana::Grid::Face<Cabana::Grid::Dim::K>, 
-                     [[maybe_unused]] const int coords[Dim], 
-		     [[maybe_unused]] const int x[Dim], 
-	             double &zvelocity ) const {
-	zvelocity = _uz;
-        return true;
-    }
-#endif
 };
 
-// Create Solver and Run CLAMR
+// Run the game of life problem
 void life( ClArgs& cl )
 {
     int comm_size, rank;                         // Initialize Variables

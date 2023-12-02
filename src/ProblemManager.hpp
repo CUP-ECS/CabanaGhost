@@ -21,8 +21,6 @@
 
 #include <memory>
 
-#include <Mesh.hpp>
-
 namespace CabanaGOL
 {
 
@@ -84,38 +82,28 @@ class ProblemManager;
 
 /* The 2D implementation of hte problem manager class */
 template <class ExecutionSpace, class MemorySpace>
-class ProblemManager<2, ExecutionSpace, MemorySpace>
+class ProblemManager<ExecutionSpace, MemorySpace>
 {
   public:
     using memory_space = MemorySpace;
     using execution_space = ExecutionSpace;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
 
-    using Cell = Cabana::Grid::Cell;
-    using FaceI = Cabana::Grid::Face<Cabana::Grid::Dim::I>;
-    using FaceJ = Cabana::Grid::Face<Cabana::Grid::Dim::J>;
-    using FaceK = Cabana::Grid::Face<Cabana::Grid::Dim::K>;
-
-    using cell_array =
-        Cabana::Grid::Array<double, Cabana::Grid::Cell, Cabana::Grid::UniformMesh<double, 2>,
-                      MemorySpace>;
+    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    using cell_array = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type, 
+                           MemorySpace>;
+    using grid_type = Cabana::Grid::LocalGrid<mesh_type>
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
-    using mesh_type = Mesh<2, ExecutionSpace, MemorySpace>;
 
     template <class InitFunc>
-    ProblemManager( const std::shared_ptr<mesh_type>& mesh,
+    ProblemManager( const std::shared_ptr<grid_type>& local_grid,
                     const InitFunc& create_functor )
-        : _mesh( mesh )
+        : _local_grid( local_grid )
     {
         // The layouts of our various arrays for values on the staggered mesh
         // and other associated data strutures. Do there need to be version with
         // halos associuated with them?
-        auto iface_scalar_layout = Cabana::Grid::createArrayLayout(
-            _mesh->localGrid(), 1, Cabana::Grid::Face<Cabana::Grid::Dim::I>() );
-        auto jface_scalar_layout = Cabana::Grid::createArrayLayout(
-            _mesh->localGrid(), 1, Cabana::Grid::Face<Cabana::Grid::Dim::J>() );
         auto cell_scalar_layout =
-            Cabana::Grid::createArrayLayout( _mesh->localGrid(), 1, Cabana::Grid::Cell() );
+            Cabana::Grid::createArrayLayout( _local_grid, 1, Cabana::Grid::Cell() );
 
         // The actual arrays storing mesh quantities
         _liveness_curr = Cabana::Grid::createArray<double, MemorySpace>(
@@ -127,7 +115,7 @@ class ProblemManager<2, ExecutionSpace, MemorySpace>
 
         // Halo patterns for the just liveness. This halo is just one cell deep,
         // as we only look at that much data to calculate changes in state.
-        int halo_depth = _mesh->localGrid()->haloCellWidth();
+        int halo_depth = _local_grid->haloCellWidth();
         _halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
                                           halo_depth, *_liveness_curr );
 
@@ -146,31 +134,20 @@ class ProblemManager<2, ExecutionSpace, MemorySpace>
         if ( _mesh->rank() == 0 && DEBUG )
             std::cout << "Initializing Cell Fields\n";
 
-        // Get Local Grid and Local Mesh
-        auto local_grid = *( _mesh->localGrid() );
-        auto local_mesh = *( _mesh->localMesh() );
-        double cell_size = _mesh->cellSize();
-
         // Get State Arrays
         auto l = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
 
         // Loop Over All Owned Cells ( i, j )
-        auto own_cells = local_grid.indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(),
-                                                Cabana::Grid::Local() );
+        auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(),
+                                                  Cabana::Grid::Local() );
         int index[2] = { 0, 0 };
-        double loc[2]; // x/y loocation of the cell at 0, 0
-        local_mesh.coordinates( Cabana::Grid::Cell(), index, loc );
         Kokkos::parallel_for(
             "Initialize Cells`",
             Cabana::Grid::createExecutionPolicy( own_cells, ExecutionSpace() ),
             KOKKOS_LAMBDA( const int i, const int j ) {
                 // Get Coordinates Associated with Indices ( i, j )
                 int coords[2] = { i, j };
-                double x[2];
-                x[0] = loc[0] + cell_size * i;
-                x[1] = loc[1] + cell_size * j;
-                // Initialization Function
-                create_functor( Cabana::Grid::Cell(), Field::Liveness(), coords, x,
+                create_functor( Cabana::Grid::Cell(), Field::Liveness(), coords,
                                 l( i, j, 0 ) );
             } );
     };
@@ -234,7 +211,7 @@ class ProblemManager<2, ExecutionSpace, MemorySpace>
      **/
     void gather( Version::Current ) const
     {
-        _advection_halo->gather( ExecutionSpace(), *_liveness_curr )
+        _halo->gather( ExecutionSpace(), *_liveness_curr )
     };
     void gather( Version::Next ) const
     {
@@ -243,7 +220,7 @@ class ProblemManager<2, ExecutionSpace, MemorySpace>
 
   private:
     // The mesh on which our data items are stored
-    std::shared_ptr<mesh_type> _mesh;
+    std::shared_ptr<grid_type> _local_grid;
 
     // Basic long-term quantities stored in the mesh
     std::shared_ptr<cell_array> _liveness_curr, _liveness_next;

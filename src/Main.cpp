@@ -241,7 +241,16 @@ createLocalGrid( ClArgs& cl )
 // Run the game of life problem
 void life( ClArgs& cl )
 {
+    // 1. Create a cabana grid on which to do work; it describes the layout of the
+    // data structures we will build and proides teh abstractions for parallel 
+    // computation on them.
     auto local_grid = createLocalGrid( cl );
+
+    // 2. Create a ProblemManager using that grid. The problem manager stored 
+    // persistent problem state, including state that we will want to write out.
+    // The key catch here is that the problem manager's actual type depends on 
+    // where it stores data and computes, which in turn depends on command line
+    // arguments. We do some type trickery to get around that.
     MeshInitFunc<2> initializer( 0.0, { 0.0, 0.0 } );
 }
 

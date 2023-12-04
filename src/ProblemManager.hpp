@@ -77,12 +77,8 @@ struct Liveness
  * @brief ProblemManager class to store the mesh and state values, and
  * to perform gathers and scatters in the approprate number of dimensions.
  **/
-template <std::size_t NumSpaceDim, class ExecutionSpace, class MemorySpace>
-class ProblemManager;
-
-/* The 2D implementation of hte problem manager class */
 template <class ExecutionSpace, class MemorySpace>
-class ProblemManager<ExecutionSpace, MemorySpace>
+class ProblemManager
 {
   public:
     using memory_space = MemorySpace;
@@ -91,7 +87,7 @@ class ProblemManager<ExecutionSpace, MemorySpace>
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using cell_array = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type, 
                            MemorySpace>;
-    using grid_type = Cabana::Grid::LocalGrid<mesh_type>
+    using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
     template <class InitFunc>
@@ -130,10 +126,6 @@ class ProblemManager<ExecutionSpace, MemorySpace>
     template <class InitFunctor>
     void initialize( const InitFunctor& create_functor )
     {
-        // DEBUG: Trace State Initialization
-        if ( _mesh->rank() == 0 && DEBUG )
-            std::cout << "Initializing Cell Fields\n";
-
         // Get State Arrays
         auto l = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
 
@@ -156,9 +148,9 @@ class ProblemManager<ExecutionSpace, MemorySpace>
      * Return mesh
      * @return Returns Mesh object
      **/
-    const std::shared_ptr<Mesh<2, ExecutionSpace, MemorySpace>>& mesh() const
+    const std::shared_ptr<grid_type>& local_grid() const
     {
-        return _mesh;
+        return _local_grid;
     };
 
     /**
@@ -211,7 +203,7 @@ class ProblemManager<ExecutionSpace, MemorySpace>
      **/
     void gather( Version::Current ) const
     {
-        _halo->gather( ExecutionSpace(), *_liveness_curr )
+        _halo->gather( ExecutionSpace(), *_liveness_curr );
     };
     void gather( Version::Next ) const
     {

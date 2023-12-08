@@ -148,7 +148,7 @@ class ProblemManager
      * Return mesh
      * @return Returns Mesh object
      **/
-    const std::shared_ptr<grid_type>& local_grid() const
+    const std::shared_ptr<grid_type>& localGrid() const
     {
         return _local_grid;
     };

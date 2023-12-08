@@ -19,7 +19,7 @@
 #include <mpi.h>
 
 // And now 
-#include "ProblemManager.hpp"
+#include "Solver.hpp"
 
 #if DEBUG
 #include <iostream>
@@ -187,21 +187,20 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 }
 
 // Initialize field to a constant quantity and velocity
-template <std::size_t Dim>
 struct MeshInitFunc
 {
     // Initialize Variables
     double _q;
 
-    MeshInitFunc( double q, std::array<double, Dim> u )
+    MeshInitFunc( double q, std::array<double, 2> u )
         : _q( q )
     {
     };
 
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cabana::Grid::Cell, CabanaGOL::Field::Liveness,
-                     [[maybe_unused]] const int index[Dim],
-                     [[maybe_unused]] const double x[Dim],
+                     [[maybe_unused]] const int index[2],
+                     [[maybe_unused]] const double x[2],
                      double& liveness ) const
     {
         liveness = _q;
@@ -210,39 +209,12 @@ struct MeshInitFunc
     };
 };
 
-std::shared_ptr<Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<double, 2>>>
-createLocalGrid( ClArgs& cl ) 
-{
-    int comm_size, rank;                         // Initialize Variables
-    MPI_Comm comm = MPI_COMM_WORLD;
-    MPI_Comm_size( comm, &comm_size ); // Number of Ranks
-    MPI_Comm_rank( comm, &rank );      // Get My Rank
-
-    double cell_size = 1.0;
-    // Create global mesh bounds.
-    std::array<double, 2> global_low_corner, global_high_corner;
-    for ( int d = 0; d < 2; ++d )
-    {
-        global_low_corner[d] = 0.0;
-        global_high_corner[d] = (double)cl.global_num_cells[d];
-    }
-    auto global_mesh = Cabana::Grid::createUniformGlobalMesh(
-                           global_low_corner, global_high_corner, cl.global_num_cells );
-
-    // Build the mesh partitioner and global grid.
-    std::array<bool, 2> periodic = {true, true};
-    Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitinoer
-    auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
-                           periodic, partitioner );
-    // Build the local grid.
-    return Cabana::Grid::createLocalGrid( global_grid, 1 );
-}
-
-// Run the game of life problem
+// Create and run the game of life solver
 void life( ClArgs& cl )
 {
-    auto local_grid = createLocalGrid( cl );
-    MeshInitFunc<2> initializer( 0.0, { 0.0, 0.0 } );
+    MeshInitFunc initializer( 0.0, { 0.0, 0.0 } );
+    auto solver = CabanaGOL::createSolver( cl.device, cl.global_num_cells, initializer );
+    solver->solve(cl.t_final, cl.write_freq);
 }
 
 int main( int argc, char* argv[] )

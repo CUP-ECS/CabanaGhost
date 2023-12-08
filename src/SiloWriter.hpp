@@ -16,12 +16,13 @@
 
 // Include Statements
 #include <Cabana_Grid.hpp>
-#include <Interpolation.hpp>
+
+#include "ProblemManager.hpp"
 
 #include <pmpio.h>
 #include <silo.h>
 
-namespace CAbanaGOL
+namespace CabanaGOL
 {
 
 /**
@@ -29,11 +30,11 @@ namespace CAbanaGOL
  * @class SiloWriter
  * @brief SiloWriter class to write results to Silo file using PMPIO
  **/
-template <std::size_t Dims, class ExecutionSpace, class MemorySpace>
+template <class ExecutionSpace, class MemorySpace>
 class SiloWriter
 {
   public:
-    using pm_type = ProblemManager<Dims, ExecutionSpace, MemorySpace>;
+    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     /**
      * Constructor
@@ -41,12 +42,9 @@ class SiloWriter
      *
      * @param pm Problem manager object
      */
-    template <class ProblemManagerType>
-    SiloWriter( ProblemManagerType& pm )
+    SiloWriter( std::shared_ptr<pm_type> & pm )
         : _pm( pm )
     {
-        if ( DEBUG && _pm->mesh()->rank() == 0 )
-            std::cerr << "Created CabanaGOL SiloWriter\n";
     };
 
     /**
@@ -62,15 +60,15 @@ class SiloWriter
                     double dt )
     {
         // Initialize Variables
-        int dims[Dims], zdims[Dims];
-        double *coords[Dims], *vars[Dims];
-        // double *spacing[Dims];
+        int dims[2], zdims[2];
+        double *coords[2], *vars[2];
+        // double *spacing[2];
         const char* coordnames[3] = { "X", "Y", "Z" };
         DBoptlist* optlist;
 
         // Rertrieve the Local Grid and Local Mesh
-        auto local_grid = _pm->mesh()->localGrid();
-        auto local_mesh = *( _pm->mesh()->localMesh() );
+        auto local_grid = _pm->localGrid();
+        auto local_mesh = Cabana::Grid::createLocalMesh(local_grid);
 
         Kokkos::Profiling::pushRegion( "SiloWriter::WriteFile" );
 
@@ -92,29 +90,28 @@ class SiloWriter
         auto cell_domain = local_grid->indexSpace(
             Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
-        for ( unsigned int i = 0; i < Dims; i++ )
+        for ( unsigned int i = 0; i < 2; i++ )
         {
             zdims[i] = cell_domain.extent( i ); // zones (cells) in a dimension
             dims[i] = zdims[i] + 1;             // nodes in a dimension
-            // spacing[i] = _pm->mesh()->cellSize(); // uniform mesh
         }
 
         // Allocate coordinate arrays in each dimension
-        for ( unsigned int i = 0; i < Dims; i++ )
+        for ( unsigned int i = 0; i < 2; i++ )
         {
             coords[i] = (double*)malloc( sizeof( double ) * dims[i] );
         }
 
         // Fill out coords[] arrays with coordinate values in each dimension
-        for ( unsigned int d = 0; d < Dims; d++ )
+        for ( unsigned int d = 0; d < 2; d++ )
         {
             for ( int i = cell_domain.min( d ); i < cell_domain.max( d ) + 1;
                   i++ )
             {
                 int iown = i - cell_domain.min( d );
-                int index[Dims];
-                double location[Dims];
-                for ( unsigned int j = 0; j < Dims; j++ )
+                int index[2];
+                double location[2];
+                for ( unsigned int j = 0; j < 2; j++ )
                     index[j] = 0;
                 index[d] = i;
                 local_mesh.coordinates( Cabana::Grid::Node(), index, location );
@@ -123,7 +120,7 @@ class SiloWriter
         }
 
         DBPutQuadmesh( dbfile, meshname, (DBCAS_t)coordnames, coords, dims,
-                       Dims, DB_DOUBLE, DB_COLLINEAR, optlist );
+                       2, DB_DOUBLE, DB_COLLINEAR, optlist );
         Kokkos::Profiling::popRegion();
 
         // Now we write the individual variables associated with this
@@ -155,11 +152,11 @@ class SiloWriter
         auto qHost =
             Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), qOwned );
 
-        DBPutQuadvar1( dbfile, "liveness", meshname, qHost.data(), zdims, Dims,
+        DBPutQuadvar1( dbfile, "liveness", meshname, qHost.data(), zdims, 2,
                        NULL, 0, DB_DOUBLE, DB_ZONECENT, optlist );
         Kokkos::Profiling::popRegion();
 
-        for ( unsigned int i = 0; i < Dims; i++ )
+        for ( unsigned int i = 0; i < 2; i++ )
         {
             free( coords[i] );
         }
@@ -306,7 +303,8 @@ class SiloWriter
         // Initalize Variables
         DBfile* silo_file;
         DBfile* master_file;
-        int size;
+        int size, rank;
+        MPI_Comm comm;
         int driver = DB_PDB;
         const char* file_ext = "silo";
         // TODO: Make the Number of Groups a Constant or a Runtime Parameter (
@@ -318,9 +316,11 @@ class SiloWriter
         Kokkos::Profiling::pushRegion( "SiloWriter::siloWrite" );
 
         Kokkos::Profiling::pushRegion( "SiloWriter::siloWrite::Setup" );
-        MPI_Comm_size( MPI_COMM_WORLD, &size );
-        MPI_Bcast( &numGroups, 1, MPI_INT, 0, MPI_COMM_WORLD );
-        MPI_Bcast( &driver, 1, MPI_INT, 0, MPI_COMM_WORLD );
+        comm = _pm->localGrid()->globalGrid().comm();
+        MPI_Comm_size( comm, &size );
+        MPI_Comm_rank( comm, &rank );
+        MPI_Bcast( &numGroups, 1, MPI_INT, 0, comm );
+        MPI_Bcast( &driver, 1, MPI_INT, 0, comm );
 
         baton =
             PMPIO_Init( numGroups, PMPIO_WRITE, MPI_COMM_WORLD, 1,
@@ -330,9 +330,9 @@ class SiloWriter
         sprintf( masterfilename, "data/CabanaGOL%05d.%s", time_step,
                  file_ext );
         sprintf( filename, "data/raw/CabanaGOLOutput%05d%05d.%s",
-                 PMPIO_GroupRank( baton, _pm->mesh()->rank() ), time_step,
+                 PMPIO_GroupRank( baton, rank ), time_step,
                  file_ext );
-        sprintf( nsname, "domain_%05d", _pm->mesh()->rank() );
+        sprintf( nsname, "domain_%05d", rank );
 
         // Show Errors and Force FLoating Point
         DBShowErrors( DB_ALL, NULL );
@@ -344,7 +344,7 @@ class SiloWriter
 
         Kokkos::Profiling::pushRegion( "SiloWriter::siloWrite::writeState" );
         writeFile( silo_file, name, time_step, time, dt );
-        if ( _pm->mesh()->rank() == 0 )
+        if ( rank == 0 )
         {
             master_file = DBCreate( masterfilename, DB_CLOBBER, DB_LOCAL,
                                     "CabanaGOL", driver );

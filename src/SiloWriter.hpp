@@ -266,10 +266,10 @@ class SiloWriter
             mesh_block_names[i] = (char*)malloc( 1024 );
             q_block_names[i] = (char*)malloc( 1024 );
 
-            sprintf( mesh_block_names[i],
+            snprintf( mesh_block_names[i], 1024,
                      "raw/CabanaGOLOutput%05d%05d.%s:/domain_%05d/Mesh",
                      group_rank, time_step, file_ext, i );
-            sprintf( q_block_names[i],
+            snprintf( q_block_names[i], 1024,
                      "raw/CabanaGOLOutput%05d%05d.%s:/domain_%05d/liveness",
                      group_rank, time_step, file_ext, i );
             block_types[i] = DB_QUADMESH;
@@ -330,12 +330,12 @@ class SiloWriter
                         createSiloFile, openSiloFile, closeSiloFile, &driver );
 
         // Set Filename to Reflect TimeStep
-        sprintf( masterfilename, "data/CabanaGOL%05d.%s", time_step,
+        snprintf( masterfilename, 256, "data/CabanaGOL%05d.%s", time_step,
                  file_ext );
-        sprintf( filename, "data/raw/CabanaGOLOutput%05d%05d.%s",
+        snprintf( filename, 256, "data/raw/CabanaGOLOutput%05d%05d.%s",
                  PMPIO_GroupRank( baton, rank ), time_step,
                  file_ext );
-        sprintf( nsname, "domain_%05d", rank );
+        snprintf( nsname, 256, "domain_%05d", rank );
 
         // Show Errors and Force FLoating Point
         DBShowErrors( DB_ALL, NULL );

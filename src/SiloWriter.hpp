@@ -34,6 +34,9 @@ template <class ExecutionSpace, class MemorySpace>
 class SiloWriter
 {
   public:
+    using mem_type = MemorySpace;
+    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     /**
@@ -67,8 +70,8 @@ class SiloWriter
         DBoptlist* optlist;
 
         // Rertrieve the Local Grid and Local Mesh
-        auto local_grid = _pm->localGrid();
-        auto local_mesh = Cabana::Grid::createLocalMesh(local_grid);
+        std::shared_ptr<grid_type> local_grid = _pm->localGrid();
+        Cabana::Grid::LocalMesh<mem_type, mesh_type> local_mesh = Cabana::Grid::createLocalMesh<mem_type>(*local_grid);
 
         Kokkos::Profiling::pushRegion( "SiloWriter::WriteFile" );
 

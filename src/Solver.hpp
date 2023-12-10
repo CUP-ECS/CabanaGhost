@@ -96,10 +96,10 @@ class Solver : public SolverBase
 
         // Create a problem manager to manage mesh state
         _pm = std::make_shared<ProblemManager<ExecutionSpace, MemorySpace>>(
-            *_local_grid, create_functor );
+            _local_grid, create_functor );
 
         // Set up Silo for I/O
-        _silo = std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( *_pm );
+        _silo = std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( _pm );
     }
 
     void setup() override
@@ -126,7 +126,7 @@ class Solver : public SolverBase
         do
         {
             if ( 0 == rank )
-                printf( "Step %d / %d\n", t, t_final );
+                printf( "Step %d / %d\n", t, (int)t_final );
 
             step();
             t++;

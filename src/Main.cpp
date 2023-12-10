@@ -200,7 +200,6 @@ struct MeshInitFunc
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cabana::Grid::Cell, CabanaGOL::Field::Liveness,
                      [[maybe_unused]] const int index[2],
-                     [[maybe_unused]] const double x[2],
                      double& liveness ) const
     {
         liveness = _q;

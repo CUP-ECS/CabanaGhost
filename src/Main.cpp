@@ -199,11 +199,21 @@ struct MeshInitFunc
 
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cabana::Grid::Cell, CabanaGOL::Field::Liveness,
-                     [[maybe_unused]] const int index[2],
-                     double& liveness ) const
+                     const int index[2], double& liveness ) const
     {
-        liveness = _q;
-
+        /* We put a glider the in the middle of every 10 x 10 block. */
+        switch ((index[0] % 10) * 10 + index[1] % 10) {
+          case 33:
+          case 34:
+          case 44:
+          case 45:
+          case 53:
+            liveness = 1.0; 
+            break;
+          default:
+            liveness = 0.0;
+            break;
+        }
         return true;
     };
 };

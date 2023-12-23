@@ -77,6 +77,41 @@ class Solver : public SolverBase
 
     void step() override
     {
+        auto local_grid = _pm->localGrid();
+        auto src_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
+        auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() );
+        auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
+
+        /* Halo the source array to get values from neighboring processes */
+        _pm->gather( Version::Current() );
+
+        /* Run the game of life function from the source to the destination */
+        Kokkos::parallel_for("Game of Life Evaluation", 
+            Cabana::Grid::createExecutionPolicy( own_cells, ExecutionSpace() ),
+            KOKKOS_LAMBDA(int i, int j) {
+                double sum = 0.0;
+                int ii, jj;
+                for (ii = -1; ii <= 1; ii++) {
+                    for (jj = -1; jj <= 1; jj++) {
+                        if ((ii == 0) && (jj == 0)) continue;
+                        sum += src_array(i + ii,j + jj, 0);
+                    }
+                }
+                if (src_array(i, j, 0) == 0.0) {
+                    if ((sum > 2.99) && (sum < 3.01))
+                        dst_array(i, j, 0) = 1.0;
+                    else 
+                        dst_array(i, j, 0) = 0.0;
+                } else {
+                    if ((sum >= 1.99) && (sum <= 3.01))
+                        dst_array(i, j, 0) = 1.0;
+                    else 
+                        dst_array(i, j, 0) = 0.0;
+                }
+            });
+
+        /* Switch the source and destination arrays and advance time*/
+        _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
         _time++;
     }
 

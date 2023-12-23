@@ -211,14 +211,16 @@ class ProblemManager
     };
 
   private:
-    // The mesh on which our data items are stored
+    // The mesh on which our data items are stored. This is a shared_ptr because
+    // we retain long-term ownership but the localGrid() method lets other classes
+    // obtain a pointer, and we don't know how long that reference will live. 
     std::shared_ptr<grid_type> _local_grid;
 
-    // Basic long-term quantities stored in the mesh
-    std::shared_ptr<cell_array> _liveness_curr, _liveness_next;
-
-    // Halo communication pattern for the mesh quantities
-    std::shared_ptr<halo_type> _halo;
+    // Data items returned from Cabana create methods. Even though we likely hold the
+    // only pointers these objects, they are shared_ptr instead of uniq_ptr because 
+    // Cabana returns shared_ptr.
+    std::shared_ptr<cell_array> _liveness_curr, _liveness_next; // Data values
+    std::shared_ptr<halo_type> _halo; // Communication pattern
 };
 
 } // namespace CabanaGOL

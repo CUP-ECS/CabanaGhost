@@ -45,7 +45,7 @@ class SiloWriter
      *
      * @param pm Problem manager object
      */
-    SiloWriter( std::shared_ptr<pm_type> & pm )
+    SiloWriter( const pm_type & pm )
         : _pm( pm )
     {
     };
@@ -69,8 +69,8 @@ class SiloWriter
         const char* coordnames[3] = { "X", "Y", "Z" };
         DBoptlist* optlist;
 
-        // Rertrieve the Local Grid and Local Mesh
-        std::shared_ptr<grid_type> local_grid = _pm->localGrid();
+        // Retrieve the Local Grid and Local Mesh
+        std::shared_ptr<grid_type> local_grid = _pm.localGrid();
         Cabana::Grid::LocalMesh<mem_type, mesh_type> local_mesh = Cabana::Grid::createLocalMesh<mem_type>(*local_grid);
 
         Kokkos::Profiling::pushRegion( "SiloWriter::WriteFile" );
@@ -134,7 +134,7 @@ class SiloWriter
         // execution space to the host execution space
         Kokkos::Profiling::pushRegion( "SiloWriter::WriteFile::WriteLiveness" );
         auto q =
-            _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
+            _pm.get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
         auto xmin = cell_domain.min( 0 );
         auto ymin = cell_domain.min( 1 );
 
@@ -319,7 +319,7 @@ class SiloWriter
         Kokkos::Profiling::pushRegion( "SiloWriter::siloWrite" );
 
         Kokkos::Profiling::pushRegion( "SiloWriter::siloWrite::Setup" );
-        comm = _pm->localGrid()->globalGrid().comm();
+        comm = _pm.localGrid()->globalGrid().comm();
         MPI_Comm_size( comm, &size );
         MPI_Comm_rank( comm, &rank );
         MPI_Bcast( &numGroups, 1, MPI_INT, 0, comm );
@@ -368,7 +368,8 @@ class SiloWriter
     }
 
   private:
-    std::shared_ptr<pm_type> _pm;
+    // The problem manager is owned by
+    const pm_type & _pm;
 };
 
 }; // namespace CabanaGOL

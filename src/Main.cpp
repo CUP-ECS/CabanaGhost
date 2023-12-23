@@ -208,14 +208,6 @@ struct MeshInitFunc
     };
 };
 
-// Create and run the game of life solver
-void life( ClArgs& cl )
-{
-    MeshInitFunc initializer( 0.0, { 0.0, 0.0 } );
-    auto solver = CabanaGOL::createSolver( cl.device, cl.global_num_cells, initializer );
-    solver->solve(cl.t_final, cl.write_freq);
-}
-
 int main( int argc, char* argv[] )
 {
     MPI_Init( &argc, &argv );         // Initialize MPI
@@ -253,8 +245,17 @@ int main( int argc, char* argv[] )
     }
 
     // Call advection solver
-    life( cl );
+    MeshInitFunc initializer( 0.0, { 0.0, 0.0 } );
+    auto solver = CabanaGOL::createSolver( cl.device, cl.global_num_cells, initializer );
+    solver->solve(cl.t_final, cl.write_freq);
 
+    // We need to make sure the solver, which includes a bunch of Kokkos-related allocations
+    // is shut down before we shut down Kokkos. TO do that, we simply set teh solver pointer 
+    // to nullptr; this will cause its reference count to go to zero and for it and everything
+    // it points to to be freed.
+    solver = nullptr;
+
+    // Shut things down
     Kokkos::finalize(); // Finalize Kokkos
     MPI_Finalize();     // Finalize MPI
 

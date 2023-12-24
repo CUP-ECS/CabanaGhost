@@ -73,8 +73,12 @@ class Solver : public SolverBase
 
     void setup() override
     {
+        /* Halo the source array to get values from neighboring processes */
+        _pm->gather( Version::Current() );
     }
 
+    /* This code assumes the halo for the current step is already done, and we have to do the
+     * the halo for the next communication step. */
     void step() override
     {
         auto local_grid = _pm->localGrid();
@@ -82,8 +86,6 @@ class Solver : public SolverBase
         auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() );
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
-        /* Halo the source array to get values from neighboring processes */
-        _pm->gather( Version::Current() );
 
         /* Run the game of life function from the source to the destination */
         Kokkos::parallel_for("Game of Life Evaluation", 
@@ -110,6 +112,9 @@ class Solver : public SolverBase
                 }
             });
 
+        /* Halo the computed values for the next time step */
+        _pm->gather( Version::Next() );
+
         /* Switch the source and destination arrays and advance time*/
         _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
         _time++;
@@ -125,6 +130,9 @@ class Solver : public SolverBase
         if (write_freq > 0) {
             _silo->siloWrite( strdup( "Mesh" ), t, _time, 1 );
         }
+
+        // Setup for the solve.
+        setup();
 
         // Start advancing time.
         do

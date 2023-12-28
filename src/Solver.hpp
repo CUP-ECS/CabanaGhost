@@ -18,6 +18,7 @@
 #include "ProblemManager.hpp"
 #include "SiloWriter.hpp"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
@@ -40,6 +41,7 @@ template <class ExecutionSpace, class MemorySpace>
 class Solver : public SolverBase
 {
   public:
+    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     template <class InitFunc>
     Solver( const std::array<int, 2> & global_num_cells, 
             const InitFunc& create_functor ) 
@@ -86,32 +88,71 @@ class Solver : public SolverBase
         auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() );
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
+        /* Define the lambda to use for game of life */
+        auto gol_lambda = KOKKOS_LAMBDA(int i, int j) {
+            double sum = 0.0;
+            int ii, jj;
+            for (ii = -1; ii <= 1; ii++) {
+                for (jj = -1; jj <= 1; jj++) {
+                    if ((ii == 0) && (jj == 0)) continue;
+                    sum += src_array(i + ii,j + jj, 0);
+                }
+            }
+            if (src_array(i, j, 0) == 0.0) {
+                if ((sum > 2.99) && (sum < 3.01))
+                    dst_array(i, j, 0) = 1.0;
+                else 
+                    dst_array(i, j, 0) = 0.0;
+            } else {
+                if ((sum >= 1.99) && (sum <= 3.01))
+                    dst_array(i, j, 0) = 1.0;
+                else 
+                    dst_array(i, j, 0) = 0.0;
+            }
+        };
 
-        /* Run the game of life function from the source to the destination */
-        Kokkos::parallel_for("Game of Life Evaluation", 
-            Cabana::Grid::createExecutionPolicy( own_cells, ExecutionSpace() ),
-            KOKKOS_LAMBDA(int i, int j) {
-                double sum = 0.0;
-                int ii, jj;
-                for (ii = -1; ii <= 1; ii++) {
-                    for (jj = -1; jj <= 1; jj++) {
-                        if ((ii == 0) && (jj == 0)) continue;
-                        sum += src_array(i + ii,j + jj, 0);
-                    }
-                }
-                if (src_array(i, j, 0) == 0.0) {
-                    if ((sum > 2.99) && (sum < 3.01))
-                        dst_array(i, j, 0) = 1.0;
-                    else 
-                        dst_array(i, j, 0) = 0.0;
-                } else {
-                    if ((sum >= 1.99) && (sum <= 3.01))
-                        dst_array(i, j, 0) = 1.0;
-                    else 
-                        dst_array(i, j, 0) = 0.0;
-                }
+        // We use hierarchical parallelism here to enable partitioned communication along the boundary
+        // as blocks of tjhe mesh are computed. There is likely some computational cost to this.
+        
+        // 1. Determine the number of teams in the league (the league size), based on the block size 
+        // we want to communicate in each dimension. Start assuming square blocks.
+        int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
+        int blocks_per_dim = 2;
+        int block_size = (iextent + blocks_per_dim - 1)/blocks_per_dim;
+        int league_size = blocks_per_dim * blocks_per_dim;
+        int istart = own_cells.min(0), jstart = own_cells.min(1);
+        int iend = own_cells.max(0), jend = own_cells.max(1);
+
+        typedef typename Kokkos::TeamPolicy<ExecutionSpace>::member_type member_type;
+        Kokkos::TeamPolicy<ExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
+        Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
+            KOKKOS_LAMBDA(member_type team_member) 
+        {
+            // Figure out the i/j pieces of the block this team member is responsible for
+            int league_rank = team_member.league_rank();
+            int itile = league_rank / blocks_per_dim,
+                jtile = league_rank % blocks_per_dim;
+            int ibase = istart + itile * block_size,
+                jbase = jstart + jtile * block_size;
+            int ilimit = std::min(ibase + block_size, iend),
+                jlimit = std::min(jbase + block_size, jend);
+            int iextent = ilimit - ibase,
+                jextent = jlimit - jbase;
+
+            // 2. Now the team of threads iterates over the block it is responsible for. Each thread
+            // in the team may handle multiple indexes, depending on the size of the team.
+            auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
+            Kokkos::parallel_for(block, [&](int i, int j)
+            {
+                gol_lambda(ibase + i, jbase + j);
             });
 
+            // 3. Finally, the team is done with its block and can barrier and have one thread
+            // in the team signal any communication that needs to be done
+            team_member.team_barrier();
+        });
+#endif
+          
         /* Halo the computed values for the next time step */
         _pm->gather( Version::Next() );
 
@@ -154,7 +195,8 @@ class Solver : public SolverBase
     /* Solver state variables */
     int _time;
     
-    std::shared_ptr<Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<double, 2>>> _local_grid;
+    std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
+
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
     std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace>> _silo;
 };

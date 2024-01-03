@@ -35,20 +35,21 @@ class SolverBase
 
 //---------------------------------------------------------------------------//
 
-template <class ExecutionSpace, class MemorySpace>
+template <class ExecutionSpace, class MemorySpace, int Dims>
 class Solver : public SolverBase
 {
   public:
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
+
     template <class InitFunc>
-    Solver( const std::array<int, 2> & global_num_cells, 
+    Solver( const std::array<int, Dims> & global_num_cells, 
             const InitFunc& create_functor ) 
         : _time( 0.0 )
     {
         // Create a local grid describing our data layout
         // Create global mesh bounds.
-        std::array<double, 2> global_low_corner, global_high_corner;
-        for ( int d = 0; d < 2; ++d )
+        std::array<double, Dims> global_low_corner, global_high_corner;
+        for ( int d = 0; d < Dims; ++d )
         {
             global_low_corner[d] = 0.0;
             global_high_corner[d] = global_num_cells[d];
@@ -57,8 +58,12 @@ class Solver : public SolverBase
                                global_low_corner, global_high_corner, global_num_cells );
 
         // Build the mesh partitioner and global grid.
-        std::array<bool, 2> periodic = {true, true};
-        Cabana::Grid::DimBlockPartitioner<2> partitioner;
+        std::array<bool, Dims> periodic;
+        for (int d = 0; d < Dims; ++d) 
+        {
+            periodic[d] = true;
+        }
+        Cabana::Grid::DimBlockPartitioner<Dims> partitioner;
         auto global_grid = Cabana::Grid::createGlobalGrid( MPI_COMM_WORLD, global_mesh,
                                periodic, partitioner );
         // Build the local grid. 
@@ -261,7 +266,7 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_unique<
-            Solver<Kokkos::Serial, Kokkos::HostSpace>>(global_num_cell, create_functor);
+            Solver<Kokkos::Serial, Kokkos::HostSpace, 2>>(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
 #endif
@@ -270,7 +275,7 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_unique<
-            Solver<Kokkos::Threads, Kokkos::HostSpace>>( global_num_cell, create_functor );
+            Solver<Kokkos::Threads, Kokkos::HostSpace, 2>>( global_num_cell, create_functor );
 #else
         throw std::runtime_error( "Threads Backend Not Enabled" );
 #endif
@@ -279,7 +284,7 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_OPENMP )
         return std::make_unique
-            Solver<Kokkos::OpenMP, Kokkos::HostSpace>>(global_num_cell, create_functor);
+            Solver<Kokkos::OpenMP, Kokkos::HostSpace, 2>>(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "OpenMP Backend Not Enabled" );
 #endif
@@ -288,7 +293,7 @@ createSolver( const std::string& device,
     {
 #if defined(KOKKOS_ENABLE_CUDA)
         return std::make_unique<
-            Solver<Kokkos::Cuda, Kokkos::CudaSpace>>(global_num_cell, create_functor);
+            Solver<Kokkos::Cuda, Kokkos::CudaSpace, 2>>(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
 #endif
@@ -297,7 +302,7 @@ createSolver( const std::string& device,
     {
 #ifdef KOKKOS_ENABLE_HIP
         return std::make_unique<Solver<Kokkos::Experimental::HIP, 
-            Kokkos::Experimental::HIPSpacer>>(global_bounding_box, create_functor);
+            Kokkos::Experimental::HIPSpace, 2>>(global_bounding_box, create_functor);
 #else
         throw std::runtime_error( "HIP Backend Not Enabled" );
 #endif

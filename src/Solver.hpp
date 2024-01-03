@@ -34,8 +34,15 @@ class SolverBase
 };
 
 //---------------------------------------------------------------------------//
+namespace Approach {
+  struct FlatHost {};
+  template <std::size_t Blocks> struct HierarchicalHost {};
+  template <std::size_t Blocks> struct HierarchicalKernel {};
+} // namespace Approach
 
-template <class ExecutionSpace, class MemorySpace, int Dims>
+//---------------------------------------------------------------------------//
+
+template <class ExecutionSpace, class MemorySpace, int Dims, class CompApproach>
 class Solver : public SolverBase
 {
   public:
@@ -112,8 +119,13 @@ class Solver : public SolverBase
         {}
     };
 
-    /* This code assumes the halo for the current step is already done, and we have to do the
-     * the halo for the next communication step. */
+    /* Now the various versions of code to actually compute/communicate 
+     * a timestep. These are conditional on the computataional approach being
+     * used. This currently uses a clever but messy C++14 construct - 
+     * enable_if_t and SFINAE - and should be replaced with C++20 requires
+     * onece is is more broadly available. */
+    template <std::enable_if_t< 
+                  std::is_same<Approach::FlatHost, CompApproach>::value, void>* = nullptr >
     void step() 
     {
         // 1. Get the data we need and then construct a functor to handle
@@ -149,7 +161,10 @@ class Solver : public SolverBase
         _time++;
     }
 
-#if 0 // Commented out until enable_if specialization in place
+    template <std::size_t Blocks,
+              std::enable_if_t<
+                  std::is_same<Approach::HierarchicalKernel<Blocks>, 
+                      CompApproach>::value, int>* = nullptr >
     void step()
     {
         // 1. Get the data we need and then construct a functor to handle
@@ -212,7 +227,6 @@ class Solver : public SolverBase
         _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
         _time++;
     }
-#endif
 
     void solve( const double t_final, const int write_freq ) override
     {
@@ -266,7 +280,8 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_unique<
-            Solver<Kokkos::Serial, Kokkos::HostSpace, 2>>(global_num_cell, create_functor);
+            Solver<Kokkos::Serial, Kokkos::HostSpace, 2, Approach::FlatHost>
+            >(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
 #endif
@@ -275,7 +290,8 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_unique<
-            Solver<Kokkos::Threads, Kokkos::HostSpace, 2>>( global_num_cell, create_functor );
+            Solver<Kokkos::Threads, Kokkos::HostSpace, 2, Approach::Flat>
+            >( global_num_cell, create_functor );
 #else
         throw std::runtime_error( "Threads Backend Not Enabled" );
 #endif

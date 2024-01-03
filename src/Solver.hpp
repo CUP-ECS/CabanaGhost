@@ -78,6 +78,7 @@ class Solver : public SolverBase
         /* Halo the source array to get values from neighboring processes */
         _pm->gather( Version::Current() );
     }
+
     struct golFunctor {
         using view_type = Kokkos::View<double ***, MemorySpace>;
         view_type _src_array, _dst_array;
@@ -112,12 +113,53 @@ class Solver : public SolverBase
      * the halo for the next communication step. */
     void step() override
     {
+        // 1. Get the data we need and then construct a functor to handle
+        // parallel computation on that 
         auto local_grid = _pm->localGrid();
         auto src_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
         auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() );
+        struct golFunctor gol(src_array, dst_array);
+
+        // 2. Figure ouyt the portion of that data that we own and need to 
+        // compute. Note the assumption that the Ghost data is already up
+        // to date here.
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
+        // 3. Iterate over the space of indexes we own and apply the 
+        // functor in parallel to that space to calculate the 
+        // output data
+        Cabana:Grid:grid_parallel_for("Game of Life Mesh Parallel Loop", 
+            ExecutionSpace(), own_cells, KOKKOS_LAMBDA(int i, int j)
+        {
+            gol(i, j);
+        });
+
+        // 4. Make sure the parallel for loop is done before use its results
+        Kokkos::fence();
+ 
+        // 5. Gather our ghost cells for the next time around from our
+        // our neighbor's owned cells.
+        _pm->gather( Version::Next() );
+
+        /* 6. Make the state we next state the current state and advance time*/
+        _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
+        _time++;
+    }
+
+#if 0
+    void step() override
+    {
+        // 1. Get the data we need and then construct a functor to handle
+        // parallel computation on that 
+        auto local_grid = _pm->localGrid();
+        auto src_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
+        auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() );
         struct golFunctor gol(src_array, dst_array);
+
+        // 2. Figure ouyt the portion of that data that we own and need to 
+        // compute. Note the assumption that the Ghost data is already up
+        // to date here.
+        auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
         // We use hierarchical parallelism here to enable partitioned communication along the boundary
         // as blocks of tjhe mesh are computed. There is likely some computational cost to this.
@@ -167,6 +209,7 @@ class Solver : public SolverBase
         _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
         _time++;
     }
+#endif
 
     void solve( const double t_final, const int write_freq ) override
     {

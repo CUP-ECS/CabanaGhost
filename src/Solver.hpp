@@ -30,8 +30,6 @@ class SolverBase
 {
   public:
     virtual ~SolverBase() = default;
-    virtual void setup( void ) = 0;
-    virtual void step( void ) = 0;
     virtual void solve( const double t_final, const int write_freq ) = 0;
 };
 
@@ -73,7 +71,7 @@ class Solver : public SolverBase
         _silo = std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( *_pm );
     }
 
-    void setup() override
+    void setup()
     {
         /* Halo the source array to get values from neighboring processes */
         _pm->gather( Version::Current() );
@@ -111,7 +109,7 @@ class Solver : public SolverBase
 
     /* This code assumes the halo for the current step is already done, and we have to do the
      * the halo for the next communication step. */
-    void step() override
+    void step() 
     {
         // 1. Get the data we need and then construct a functor to handle
         // parallel computation on that 
@@ -146,8 +144,8 @@ class Solver : public SolverBase
         _time++;
     }
 
-#if 0
-    void step() override
+#if 0 // Commented out until enable_if specialization in place
+    void step()
     {
         // 1. Get the data we need and then construct a functor to handle
         // parallel computation on that 

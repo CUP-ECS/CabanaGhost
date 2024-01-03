@@ -78,6 +78,35 @@ class Solver : public SolverBase
         /* Halo the source array to get values from neighboring processes */
         _pm->gather( Version::Current() );
     }
+    struct golFunctor {
+        using view_type = Kokkos::View<double ***, MemorySpace>;
+        view_type _src_array, _dst_array;
+
+        KOKKOS_INLINE_FUNCTION void operator()(int i, int j) const {
+            double sum = 0.0;
+            int ii, jj;
+            for (ii = -1; ii <= 1; ii++) {
+                for (jj = -1; jj <= 1; jj++) {
+                    if ((ii == 0) && (jj == 0)) continue;
+                    sum += _src_array(i + ii,j + jj, 0);
+                }
+            }
+            if (_src_array(i, j, 0) == 0.0) {
+                if ((sum > 2.99) && (sum < 3.01))
+                    _dst_array(i, j, 0) = 1.0;
+                else 
+                    _dst_array(i, j, 0) = 0.0;
+            } else {
+                if ((sum >= 1.99) && (sum <= 3.01))
+                    _dst_array(i, j, 0) = 1.0;
+                else 
+                    _dst_array(i, j, 0) = 0.0;
+            }
+        };
+        golFunctor(view_type s, view_type d)
+            : _src_array(s), _dst_array(d)
+        {}
+    };
 
     /* This code assumes the halo for the current step is already done, and we have to do the
      * the halo for the next communication step. */
@@ -88,28 +117,7 @@ class Solver : public SolverBase
         auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() );
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
-        /* Define the lambda to use for game of life */
-        auto gol_lambda = KOKKOS_LAMBDA(int i, int j) {
-            double sum = 0.0;
-            int ii, jj;
-            for (ii = -1; ii <= 1; ii++) {
-                for (jj = -1; jj <= 1; jj++) {
-                    if ((ii == 0) && (jj == 0)) continue;
-                    sum += src_array(i + ii,j + jj, 0);
-                }
-            }
-            if (src_array(i, j, 0) == 0.0) {
-                if ((sum > 2.99) && (sum < 3.01))
-                    dst_array(i, j, 0) = 1.0;
-                else 
-                    dst_array(i, j, 0) = 0.0;
-            } else {
-                if ((sum >= 1.99) && (sum <= 3.01))
-                    dst_array(i, j, 0) = 1.0;
-                else 
-                    dst_array(i, j, 0) = 0.0;
-            }
-        };
+        struct golFunctor gol(src_array, dst_array);
 
         // We use hierarchical parallelism here to enable partitioned communication along the boundary
         // as blocks of tjhe mesh are computed. There is likely some computational cost to this.
@@ -144,14 +152,13 @@ class Solver : public SolverBase
             auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
             Kokkos::parallel_for(block, [&](int i, int j)
             {
-                gol_lambda(ibase + i, jbase + j);
+                gol(ibase + i, jbase + j);
             });
 
             // 3. Finally, the team is done with its block and can barrier and have one thread
             // in the team signal any communication that needs to be done
             team_member.team_barrier();
         });
-#endif
           
         /* Halo the computed values for the next time step */
         _pm->gather( Version::Next() );

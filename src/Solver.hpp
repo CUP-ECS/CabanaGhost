@@ -247,55 +247,77 @@ class Solver : public SolverBase
         // to date here.
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
-        // We use hierarchical parallelism here to enable partitioned communication along the boundary
-        // as blocks of tjhe mesh are computed. There is likely some computational cost to this.
+        // We use hierarchical parallelism here to enable partitioned communication 
+        // along the boundary as blocks of the mesh are computed. There is likely 
+        // some computational cost versus pure non-hierarchical parallelism to this.
     
-        // 1. Determine the number of teams in the league (the league size), based on the block size 
-        // we want to communicate in each dimension. Start assuming square blocks.
+        // 1. Determine the number of teams in the league (the league size), based 
+        // on the block size we want to communicate in each dimension. 
         int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
-        int blocks_per_dim = 2;
-        int block_size = (iextent + blocks_per_dim - 1)/blocks_per_dim;
-        int league_size = blocks_per_dim * blocks_per_dim;
+        int iblocks = Blocks, jblocks = Blocks; 
+        int iblock_size = (iextent + iblocks - 1)/iblocks,
+            jblock_size = (jextent + jblocks - 1)/jblocks,;
+        int league_size = iblocks * jblocks;
         int istart = own_cells.min(0), jstart = own_cells.min(1);
         int iend = own_cells.max(0), jend = own_cells.max(1);
 
+        // 2. Start the halo exchange process
 	_pm->gatherStart(Version::Next());
 
+        // 3. Define the thread team policy which will compute elements 
         typedef typename Kokkos::TeamPolicy<ExecutionSpace>::member_type member_type;
         Kokkos::TeamPolicy<ExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
+ 
+        // 4. Launch the thread teams, one per block
         Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
         	KOKKOS_LAMBDA(member_type team_member) 
         {
-            // Figure out the i/j pieces of the block this team member is responsible for
+            // 4a. Figure out the i/j pieces of the block this team member is 
+            // responsible for. 
+            // XXX Should make Kokkos or Cabana helper functions to do this. XXX
 	    int league_rank = team_member.league_rank();
-	    int itile = league_rank / blocks_per_dim,
-	        jtile = league_rank % blocks_per_dim;
-	    int ibase = istart + itile * block_size,
-	        jbase = jstart + jtile * block_size;
-	    int ilimit = std::min(ibase + block_size, iend),
-	        jlimit = std::min(jbase + block_size, jend);
+	    int itile = league_rank / iblocks,
+	        jtile = league_rank % iblocks; 
+	    int ibase = istart + itile * iblock_size,
+	        jbase = jstart + jtile * jblock_size;
+	    int ilimit = std::min(ibase + iblock_size, iend),
+	        jlimit = std::min(jbase + jblock_size, jend);
 	    int iextent = ilimit - ibase,
 	        jextent = jlimit - jbase;
 
-	    // 2. Now the team of threads iterates over the block it is responsible for. Each thread
-	    // in the team may handle multiple indexes, depending on the size of the team.
+	    // 4b. The team of threads iterates over the block it is responsible for.
+            // Each thread in the team may handle multiple indexes, depending on the 
+            // size of the team. 
+            // XXX We should make a TeamThreadMDRange that takes start and end indexes 
+            // in each dimension just like the standard MDRange can. XXX
 	    auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
 	    Kokkos::parallel_for(block, [&](int i, int j)
 	    {
 	        gol(ibase + i, jbase + j);
 	    });
 
-	    // 3. Finally, the team is done with its block and can barrier and have one thread
-	    // in the team signal any communication that needs to be done
-	    team_member.team_barrier();
-            if (team_member.team_rank() == 0)
-	        _pm->gatherReady(itile, jtile);
+	    // 4b. Finally, the team is done with its block and can work on any
+            // communication that the block needs. Note that this can also
+            //   1. Use the thread team to pack any buffers that need to be sent
+            //   2. use team_member.barrier() to synchronize before having one 
+            //      team member call pready to send any data needed.
+	    _pm->gatherReady(block, itile, jtile); 
         });
 
-        // Make sure the parallel for loop is done before use its results
+        // 5. Make sure the parallel for loop is done before use its results
+        // XXX Is/should this be necessary?
         Kokkos::fence();
       
-        /* Halo the computed values for the next time step */
+        /* 6. Finish the halo for the next time step - this probably has to unpack 
+         * since we don't have a kernel running any longer to do that. 
+         * XXX Alternatives XXX:
+         *     1. Have the gather code in the parallel loop above to do that 
+         *        with pArrived, which may open a synchronization can of worms
+         *        since kernel code may not be preemptible. 
+         *     2. Have this code synchronize with other kernels already queued up
+         *        for unpacking on a seperate stream once buffers have come in.
+         *        *could* set up those kernels (or Kokkos tasks...) Think about the
+         *        right thing to do here! */
         _pm->gatherFinish( Version::Next() );
 
         /* Switch the source and destination arrays and advance time*/

@@ -251,7 +251,7 @@ class Solver : public SolverBase
         // along the boundary as blocks of the mesh are computed. There is likely 
         // some computational cost versus pure non-hierarchical parallelism to this.
     
-        // 1. Determine the number of teams in the league (the league size), based 
+        // 3. Determine the number of teams in the league (the league size), based 
         // on the block size we want to communicate in each dimension. 
         int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
         int iblocks = Blocks, jblocks = Blocks; 
@@ -261,18 +261,18 @@ class Solver : public SolverBase
         int istart = own_cells.min(0), jstart = own_cells.min(1);
         int iend = own_cells.max(0), jend = own_cells.max(1);
 
-        // 2. Start the halo exchange process
+        // 4. Start the halo exchange process
 	_pm->gatherStart(Version::Next());
 
-        // 3. Define the thread team policy which will compute elements 
+        // 5. Define the thread team policy which will compute elements 
         typedef typename Kokkos::TeamPolicy<ExecutionSpace>::member_type member_type;
         Kokkos::TeamPolicy<ExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
  
-        // 4. Launch the thread teams, one per block
+        // 6. Launch the thread teams, one per block
         Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
         	KOKKOS_LAMBDA(member_type team_member) 
         {
-            // 4a. Figure out the i/j pieces of the block this team member is 
+            // 6a. Figure out the i/j pieces of the block this team member is 
             // responsible for. 
             // XXX Should make Kokkos or Cabana helper functions to do this. XXX
 	    int league_rank = team_member.league_rank();
@@ -285,7 +285,7 @@ class Solver : public SolverBase
 	    int iextent = ilimit - ibase,
 	        jextent = jlimit - jbase;
 
-	    // 4b. The team of threads iterates over the block it is responsible for.
+	    // 6b. The team of threads iterates over the block it is responsible for.
             // Each thread in the team may handle multiple indexes, depending on the 
             // size of the team. 
             // XXX We should make a TeamThreadMDRange that takes start and end indexes 
@@ -296,7 +296,7 @@ class Solver : public SolverBase
 	        gol(ibase + i, jbase + j);
 	    });
 
-	    // 4b. Finally, the team is done with its block and can work on any
+	    // 6c. Finally, the team is done with its block and can work on any
             // communication that the block needs. Note that this can also
             //   1. Use the thread team to pack any buffers that need to be sent
             //   2. use team_member.barrier() to synchronize before having one 
@@ -304,11 +304,11 @@ class Solver : public SolverBase
 	    _pm->gatherReady(block, itile, jtile); 
         });
 
-        // 5. Make sure the parallel for loop is done before use its results
+        // 7. Make sure the parallel for loop is done before use its results
         // XXX Is/should this be necessary?
         Kokkos::fence();
       
-        /* 6. Finish the halo for the next time step - this probably has to unpack 
+        /* 8. Finish the halo for the next time step - this probably has to unpack 
          * since we don't have a kernel running any longer to do that. 
          * XXX Alternatives XXX:
          *     1. Have the gather code in the parallel loop above to do that 

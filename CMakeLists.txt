@@ -5,6 +5,10 @@ project(CabanaGOL LANGUAGES C CXX VERSION 0.1.0)
 
 include(GNUInstallDirs)
 
+# Set the C++ version we need - 20 for requires
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # find dependencies
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 

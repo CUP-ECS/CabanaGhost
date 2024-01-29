@@ -35,14 +35,15 @@ class SolverBase
 
 //---------------------------------------------------------------------------//
 namespace Approach {
-  struct FlatHost {};
-  template <std::size_t Blocks> struct HierarchicalHost {};
-  template <std::size_t Blocks> struct HierarchicalKernel {};
+  struct Flat {};
+  template <std::size_t Blocks> struct Hierarchical {};
+  struct Host {};
+  struct Kernel {};
 } // namespace Approach
 
 //---------------------------------------------------------------------------//
 
-template <class ExecutionSpace, class MemorySpace, int Dims, class CompApproach>
+template <class ExecutionSpace, class MemorySpace, int Dims, class CompApproach, class CommApproach>
 class Solver : public SolverBase
 {
   public:
@@ -121,11 +122,9 @@ class Solver : public SolverBase
 
     /* Now the various versions of code to actually compute/communicate 
      * a timestep. These are conditional on the computataional approach being
-     * used. This currently uses a clever but messy C++14 construct - 
-     * enable_if_t and SFINAE - and should be replaced with C++20 requires
-     * onece is is more broadly available. */
-    template <>
-        requires std::is_same<Approach::FlatHost, CompApproach>
+     * used. */
+    template <class Comp, class Comm>
+        requires (std::same_as<Approach::Flat, Comp> && std::same_as<Approach::Host, Comm>)
     void step() 
     {
         // 1. Get the data we need and then construct a functor to handle
@@ -158,8 +157,9 @@ class Solver : public SolverBase
         _time++;
     }
 
-    template <std::size_t Blocks>
-        requires std::is_same<Approach::HierarchicalHost<Blocks>, CompApproach>
+    template <std::size_t Blocks, class Comp, class Comm>
+        requires std::same_as<Approach::Hierarchical<Blocks>, Comp>
+                 && std::same_as<Approach::Host, Comm>
     void step()
     {
         // 1. Get the data we need and then construct a functor to handle
@@ -213,7 +213,7 @@ class Solver : public SolverBase
             // 3. Finally, any team-specific operations that need the block to be completed
             // can be done by using a team_barrier, for example block-specific communication. 
             // None is needed here since all communication is host-driven.
-            team_member.team_barrier();
+            // team_member.team_barrier();
         });
 
         // Make sure the parallel for loop is done before use its results
@@ -227,8 +227,9 @@ class Solver : public SolverBase
         _time++;
     }
 
-    template <std::size_t Blocks>
-        requires std::is_same<Approach::HierarchicalKernel<Blocks>, CompApproach>
+    template <std::size_t Blocks, class Comp, class Comm>
+        requires std::same_as<Approach::Hierarchical<Blocks>, Comp>
+                 && std::same_as<Approach::Kernel, Comm>
     void step()
     {
         // 1. Get the data we need and then construct a functor to handle
@@ -350,7 +351,7 @@ class Solver : public SolverBase
             if ( 0 == rank )
                 printf( "Step %d / %d\n", t, (int)t_final );
 
-            step();
+            step<CompApproach, CommApproach>();
             t++;
             // Output mesh state periodically
             if ( write_freq && (0 == t % write_freq ))
@@ -382,7 +383,7 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_unique<
-            Solver<Kokkos::Serial, Kokkos::HostSpace, 2, Approach::FlatHost>
+            Solver<Kokkos::Serial, Kokkos::HostSpace, 2, Approach::Flat, Approach::Host>
             >(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
@@ -392,7 +393,7 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_unique<
-            Solver<Kokkos::Threads, Kokkos::HostSpace, 2, Approach::FlatHost>
+            Solver<Kokkos::Threads, Kokkos::HostSpace, 2, Approach::Flat, Approach:Host>
             >( global_num_cell, create_functor );
 #else
         throw std::runtime_error( "Threads Backend Not Enabled" );
@@ -411,7 +412,7 @@ createSolver( const std::string& device,
     {
 #if defined(KOKKOS_ENABLE_CUDA)
         return std::make_unique<
-            Solver<Kokkos::Cuda, Kokkos::CudaSpace, 2, Approach::FlatHost>>(global_num_cell, create_functor);
+            Solver<Kokkos::Cuda, Kokkos::CudaSpace, 2, Approach::Flat, Approach:Host>>(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
 #endif

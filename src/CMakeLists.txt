@@ -5,7 +5,6 @@ set(DEPENDS_ON
   MPI::MPI_CXX
   )
 
-set(CXX_VERSION, 20)
 add_executable( cabanagol Main.cpp )
 target_link_libraries( cabanagol PRIVATE ${DEPENDS_ON} )
 

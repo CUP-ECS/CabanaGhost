@@ -299,6 +299,14 @@ class Solver : public SolverBase
             //      team member call pready to send any data needed.
             //  XXX Capture of this is a problem here - capture ta halo instead! XXX
 	    _pm->gatherReady(block, itile, jtile); 
+	    // if (onLeftBoundary() ) {
+	    //    Kokkos::parallel_for() {
+	    //	   pack our parts of the left boundary 
+            //    } 
+            //}
+	   // team_member.barrier();
+           // if (onLeftBoundary() && team_member.rank() == 0) MPI_Pready(leftbuffer, partitionnum); 
+
         });
 
         // 7. Make sure the parallel for loop is done before use its results

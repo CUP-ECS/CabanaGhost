@@ -132,7 +132,6 @@ class ProblemManager
         // Loop Over All Owned Cells ( i, j )
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(),
                                                   Cabana::Grid::Local() );
-        int index[2] = { 0, 0 };
         Kokkos::parallel_for(
             "Initialize Cells`",
             Cabana::Grid::createExecutionPolicy( own_cells, ExecutionSpace() ),

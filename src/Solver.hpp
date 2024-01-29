@@ -124,8 +124,8 @@ class Solver : public SolverBase
      * used. This currently uses a clever but messy C++14 construct - 
      * enable_if_t and SFINAE - and should be replaced with C++20 requires
      * onece is is more broadly available. */
-    template <std::enable_if_t< 
-                  std::is_same<Approach::FlatHost, CompApproach>::value, void>* = nullptr >
+    template <>
+        requires std::is_same<Approach::FlatHost, CompApproach>
     void step() 
     {
         // 1. Get the data we need and then construct a functor to handle
@@ -158,10 +158,8 @@ class Solver : public SolverBase
         _time++;
     }
 
-    template <std::size_t Blocks,
-              std::enable_if_t<
-                  std::is_same<Approach::HierarchicalHost<Blocks>, 
-                      CompApproach>::value, int>* = nullptr >
+    template <std::size_t Blocks>
+        requires std::is_same<Approach::HierarchicalHost<Blocks>, CompApproach>
     void step()
     {
         // 1. Get the data we need and then construct a functor to handle
@@ -229,10 +227,8 @@ class Solver : public SolverBase
         _time++;
     }
 
-    template <std::size_t Blocks,
-	  std::enable_if_t<
-	      std::is_same<Approach::HierarchicalKernel<Blocks>, 
-		  CompApproach>::value, int>* = nullptr >
+    template <std::size_t Blocks>
+        requires std::is_same<Approach::HierarchicalKernel<Blocks>, CompApproach>
     void step()
     {
         // 1. Get the data we need and then construct a functor to handle
@@ -256,7 +252,7 @@ class Solver : public SolverBase
         int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
         int iblocks = Blocks, jblocks = Blocks; 
         int iblock_size = (iextent + iblocks - 1)/iblocks,
-            jblock_size = (jextent + jblocks - 1)/jblocks,;
+            jblock_size = (jextent + jblocks - 1)/jblocks;
         int league_size = iblocks * jblocks;
         int istart = own_cells.min(0), jstart = own_cells.min(1);
         int iend = own_cells.max(0), jend = own_cells.max(1);
@@ -301,6 +297,7 @@ class Solver : public SolverBase
             //   1. Use the thread team to pack any buffers that need to be sent
             //   2. use team_member.barrier() to synchronize before having one 
             //      team member call pready to send any data needed.
+            //  XXX Capture of this is a problem here - capture ta halo instead! XXX
 	    _pm->gatherReady(block, itile, jtile); 
         });
 
@@ -387,7 +384,7 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_unique<
-            Solver<Kokkos::Threads, Kokkos::HostSpace, 2, Approach::Flat>
+            Solver<Kokkos::Threads, Kokkos::HostSpace, 2, Approach::FlatHost>
             >( global_num_cell, create_functor );
 #else
         throw std::runtime_error( "Threads Backend Not Enabled" );
@@ -406,7 +403,7 @@ createSolver( const std::string& device,
     {
 #if defined(KOKKOS_ENABLE_CUDA)
         return std::make_unique<
-            Solver<Kokkos::Cuda, Kokkos::CudaSpace, 2>>(global_num_cell, create_functor);
+            Solver<Kokkos::Cuda, Kokkos::CudaSpace, 2, Approach::FlatHost>>(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
 #endif

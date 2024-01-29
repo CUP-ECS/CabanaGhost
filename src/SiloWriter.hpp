@@ -64,7 +64,7 @@ class SiloWriter
     {
         // Initialize Variables
         int dims[2], zdims[2];
-        double *coords[2], *vars[2];
+        double *coords[2]; 
         // double *spacing[2];
         const char* coordnames[3] = { "X", "Y", "Z" };
         DBoptlist* optlist;

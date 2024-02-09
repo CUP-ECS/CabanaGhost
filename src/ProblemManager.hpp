@@ -19,6 +19,8 @@
 #include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
+#include "Halo.hpp"
+
 #include <memory>
 
 namespace CabanaGOL
@@ -88,7 +90,8 @@ class ProblemManager
     using cell_array = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type, 
                            MemorySpace>;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using halo_type = Cabana::Grid::Halo<MemorySpace>;
+    using halo_type = Halo<MemorySpace>;
+    using phalo_type = PersistentHalo<MemorySpace>;
 
     template <class InitFunc>
     ProblemManager( const std::shared_ptr<grid_type>& local_grid,
@@ -111,9 +114,11 @@ class ProblemManager
 
         // Halo patterns for the just liveness. This halo is just one cell deep,
         // as we only look at that much data to calculate changes in state.
+        // First we create the generic halo pattern itself which can
+        // handle non-persistent halos 
         int halo_depth = _local_grid->haloCellWidth();
-        _halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
-                                          halo_depth, *_liveness_curr );
+        _halo = CabanaGOL::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
+                    halo_depth, *_liveness_curr );
 
         // Initialize State Values ( liveness )
         initialize( create_functor );
@@ -127,7 +132,7 @@ class ProblemManager
     void initialize( const InitFunctor& create_functor )
     {
         // Get State Arrays
-        auto l = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
+        auto l = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() ).view();
 
         // Loop Over All Owned Cells ( i, j )
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(),
@@ -157,12 +162,12 @@ class ProblemManager
      * @param Location::Cell
      * @param Field::Liveness
      * @param Version::Current
-     * @return Returns view of current liveness at cell centers
+     * @return Returns array of current liveness at cell centers
      **/
-    typename cell_array::view_type get( Cabana::Grid::Cell, Field::Liveness,
-                                        Version::Current ) const
+    cell_array get( Cabana::Grid::Cell, Field::Liveness,
+                    Version::Current ) const
     {
-        return _liveness_curr->view();
+        return *_liveness_curr;
     };
 
     /**
@@ -170,12 +175,12 @@ class ProblemManager
      * @param Location::Cell
      * @param Field::Liveness
      * @param Version::Next
-     * @return Returns view of next liveness at cell centers
+     * @return Returns array of next liveness at cell centers
      **/
-    typename cell_array::view_type get( Cabana::Grid::Cell, Field::Liveness,
-                                        Version::Next ) const
+    cell_array get( Cabana::Grid::Cell, Field::Liveness,
+                    Version::Next ) const
     {
-        return _liveness_next->view();
+        return *_liveness_next;
     };
 
     /**
@@ -186,14 +191,6 @@ class ProblemManager
     void advance( Cabana::Grid::Cell, Field::Liveness )
     {
         _liveness_curr.swap( _liveness_next );
-    }
-
-    /**
-     * Standard one-deep halo pattern for mesh fields
-     */
-    std::shared_ptr<halo_type> halo() const
-    {
-        return _halo;
     }
 
     /**
@@ -209,6 +206,16 @@ class ProblemManager
         _halo->gather( ExecutionSpace(), *_liveness_next );
     };
 
+    /**
+     * Provide persistent halo objects (by value!) for making fine-grain 
+     * exchanges
+     * @param Version
+     **/
+    halo_type halo() const
+    {
+       return *_halo;
+    };
+
   private:
     // The mesh on which our data items are stored. This is a shared_ptr because
     // we retain long-term ownership but the localGrid() method lets other classes
@@ -219,7 +226,7 @@ class ProblemManager
     // only pointers these objects, they are shared_ptr instead of uniq_ptr because 
     // Cabana returns shared_ptr.
     std::shared_ptr<cell_array> _liveness_curr, _liveness_next; // Data values
-    std::shared_ptr<halo_type> _halo; // Communication pattern
+    std::shared_ptr<halo_type> _halo; // Persistent halos
 };
 
 } // namespace CabanaGOL

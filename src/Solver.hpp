@@ -17,6 +17,7 @@
 
 #include "ProblemManager.hpp"
 #include "SiloWriter.hpp"
+#include "Halo.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -124,15 +125,18 @@ class Solver : public SolverBase
      * a timestep. These are conditional on the computataional approach being
      * used. */
     template <class Comp, class Comm>
-        requires (std::same_as<Approach::Flat, Comp> && std::same_as<Approach::Host, Comm>)
+        requires (std::same_as<Approach::Flat, Comp> 
+                  && std::same_as<Approach::Host, Comm>)
     void step() 
     {
         // 1. Get the data we need and then construct a functor to handle
         // parallel computation on that 
         auto local_grid = _pm->localGrid();
-        auto src_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
-        auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() );
-        struct golFunctor gol(src_array, dst_array);
+        auto src_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
+                                  Version::Current() ).view();
+        auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
+                                  Version::Next() ).view();
+        struct golFunctor gol(src_view, dst_view);
 
         // 2. Figure ouyt the portion of that data that we own and need to 
         // compute. Note the assumption that the Ghost data is already up
@@ -165,9 +169,9 @@ class Solver : public SolverBase
         // 1. Get the data we need and then construct a functor to handle
         // parallel computation on that 
         auto local_grid = _pm->localGrid();
-        auto src_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
-        auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() );
-        struct golFunctor gol(src_array, dst_array);
+        auto src_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() ).view();
+        auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() ).view();
+        struct golFunctor gol(src_view, dst_view);
 
         // 2. Figure ouyt the portion of that data that we own and need to 
         // compute. Note the assumption that the Ghost data is already up
@@ -235,21 +239,27 @@ class Solver : public SolverBase
         // 1. Get the data we need and then construct a functor to handle
         // parallel computation on that 
         auto local_grid = _pm->localGrid();
-        auto src_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
-        auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() );
-        struct golFunctor gol(src_array, dst_array);
+        auto src_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
+                                   Version::Current() );
+        auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
+                                   Version::Next() );
+        auto src_view = src_array.view(), dst_view = dst_array.view();
+        struct golFunctor gol(src_view, dst_view);
+        auto halo = _pm->halo( );
 
-        // 2. Figure ouyt the portion of that data that we own and need to 
+        // 2. Figure out the portion of that data that we own and need to 
         // compute. Note the assumption that the Ghost data is already up
         // to date here.
-        auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
+        auto own_cells = 
+          _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), 
+                                   Cabana::Grid::Local() );
 
-        // We use hierarchical parallelism here to enable partitioned communication 
-        // along the boundary as blocks of the mesh are computed. There is likely 
-        // some computational cost versus pure non-hierarchical parallelism to this.
+        // We use hierarchical parallelism to enable partitioned communication 
+        // along the boundary as blocks of the mesh are computed. There is  
+        // some computational cost versus non-hierarchical parallelism to this.
     
-        // 3. Determine the number of teams in the league (the league size), based 
-        // on the block size we want to communicate in each dimension. 
+        // 3. Determine the number of teams in the league (the league size)
+        // based on the block size we want to communicate in each dimension. 
         int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
         int iblocks = Blocks, jblocks = Blocks; 
         int iblock_size = (iextent + iblocks - 1)/iblocks,
@@ -259,7 +269,7 @@ class Solver : public SolverBase
         int iend = own_cells.max(0), jend = own_cells.max(1);
 
         // 4. Start the halo exchange process
-	_pm->gatherStart(Version::Next());
+	halo.gatherStart();
 
         // 5. Define the thread team policy which will compute elements 
         typedef typename Kokkos::TeamPolicy<ExecutionSpace>::member_type member_type;
@@ -282,10 +292,10 @@ class Solver : public SolverBase
 	    int iextent = ilimit - ibase,
 	        jextent = jlimit - jbase;
 
-	    // 6b. The team of threads iterates over the block it is responsible for.
-            // Each thread in the team may handle multiple indexes, depending on the 
+	    // 6b. The team of threads iterates over its block. Each thread 
+            // in the team may handle multiple indexes, depending on the 
             // size of the team. 
-            // XXX We should make a TeamThreadMDRange that takes start and end indexes 
+            // XXX Make a TeamThreadMDRange that takes start and end indexes 
             // in each dimension just like the standard MDRange can. XXX
 	    auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
 	    Kokkos::parallel_for(block, [&](int i, int j)
@@ -298,33 +308,15 @@ class Solver : public SolverBase
             //   1. Use the thread team to pack any buffers that need to be sent
             //   2. use team_member.barrier() to synchronize before having one 
             //      team member call pready to send any data needed.
-            //  XXX Capture of this is a problem here - capture ta halo instead! XXX
-	    _pm->gatherReady(block, itile, jtile); 
-	    // if (onLeftBoundary() ) {
-	    //    Kokkos::parallel_for() {
-	    //	   pack our parts of the left boundary 
-            //    } 
-            //}
-	   // team_member.barrier();
-           // if (onLeftBoundary() && team_member.rank() == 0) MPI_Pready(leftbuffer, partitionnum); 
-
+	    halo.gatherReady(block, {itile, jtile}); 
         });
 
         // 7. Make sure the parallel for loop is done before use its results
         // XXX Is/should this be necessary?
         Kokkos::fence();
       
-        /* 8. Finish the halo for the next time step - this probably has to unpack 
-         * since we don't have a kernel running any longer to do that. 
-         * XXX Alternatives XXX:
-         *     1. Have the gather code in the parallel loop above to do that 
-         *        with pArrived, which may open a synchronization can of worms
-         *        since kernel code may not be preemptible. 
-         *     2. Have this code synchronize with other kernels already queued up
-         *        for unpacking on a seperate stream once buffers have come in.
-         *        *could* set up those kernels (or Kokkos tasks...) Think about the
-         *        right thing to do here! */
-        _pm->gatherFinish( Version::Next() );
+        /* 8. Finish the halo for the next time step */ 
+        halo.gatherFinish( Version::Next() );
 
         /* Switch the source and destination arrays and advance time*/
         _pm->advance(Cabana::Grid::Cell(), Field::Liveness());

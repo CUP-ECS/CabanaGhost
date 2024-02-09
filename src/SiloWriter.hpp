@@ -134,7 +134,7 @@ class SiloWriter
         // execution space to the host execution space
         Kokkos::Profiling::pushRegion( "SiloWriter::WriteFile::WriteLiveness" );
         auto q =
-            _pm.get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
+            _pm.get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() ).view();
         auto xmin = cell_domain.min( 0 );
         auto ymin = cell_domain.min( 1 );
 

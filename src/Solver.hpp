@@ -17,7 +17,7 @@
 
 #include "ProblemManager.hpp"
 #include "SiloWriter.hpp"
-#include "Halo.hpp"
+#include "PartitionedHalo.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -269,7 +269,7 @@ class Solver : public SolverBase
         int iend = own_cells.max(0), jend = own_cells.max(1);
 
         // 4. Start the halo exchange process
-	halo.gatherStart();
+	halo.gatherStart(ExecutionSpace(), dst_array);
 
         // 5. Define the thread team policy which will compute elements 
         typedef typename Kokkos::TeamPolicy<ExecutionSpace>::member_type member_type;
@@ -308,7 +308,7 @@ class Solver : public SolverBase
             //   1. Use the thread team to pack any buffers that need to be sent
             //   2. use team_member.barrier() to synchronize before having one 
             //      team member call pready to send any data needed.
-	    halo.gatherReady(block, {itile, jtile}); 
+	    halo.gatherReady(ExecutionSpace(), team_member, {itile, jtile}, dst_array);
         });
 
         // 7. Make sure the parallel for loop is done before use its results
@@ -316,7 +316,7 @@ class Solver : public SolverBase
         Kokkos::fence();
       
         /* 8. Finish the halo for the next time step */ 
-        halo.gatherFinish( Version::Next() );
+        halo.gatherFinish( ExecutionSpace(), dst_array );
 
         /* Switch the source and destination arrays and advance time*/
         _pm->advance(Cabana::Grid::Cell(), Field::Liveness());

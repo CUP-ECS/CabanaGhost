@@ -17,7 +17,6 @@
 
 #include "ProblemManager.hpp"
 #include "SiloWriter.hpp"
-#include "PartitionedHalo.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -91,6 +90,9 @@ class Solver : public SolverBase
         _pm->gather( Version::Current() );
     }
 
+    // XXX Generalize this by passing in the functor and the 
+    // dimension ofhte functor to make this a general halo
+    // exchange benchmark
     struct golFunctor {
         using view_type = Kokkos::View<double ***, MemorySpace>;
         view_type _src_array, _dst_array;
@@ -231,6 +233,9 @@ class Solver : public SolverBase
         _time++;
     }
 
+#if 0
+    // Sketch of a hierarchical communication approach with kernel triggering, 
+    // but it doesn't compile yet.
     template <std::size_t Blocks, class Comp, class Comm>
         requires std::same_as<Approach::Hierarchical<Blocks>, Comp>
                  && std::same_as<Approach::Kernel, Comm>
@@ -312,7 +317,6 @@ class Solver : public SolverBase
         });
 
         // 7. Make sure the parallel for loop is done before use its results
-        // XXX Is/should this be necessary?
         Kokkos::fence();
       
         /* 8. Finish the halo for the next time step */ 
@@ -322,6 +326,7 @@ class Solver : public SolverBase
         _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
         _time++;
     }
+#endif // if 0 for kernel triggering
 
     void solve( const double t_final, const int write_freq ) override
     {

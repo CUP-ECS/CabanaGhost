@@ -19,7 +19,7 @@
 #include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
-#include "PartitionedHalo.hpp"
+// #include "PartitionedHalo.hpp"
 
 #include <memory>
 
@@ -90,7 +90,7 @@ class ProblemManager
     using cell_array = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type, 
                            MemorySpace>;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using halo_type = PartitionedHalo<MemorySpace>;
+    using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
     template <class InitFunc>
     ProblemManager( const std::shared_ptr<grid_type>& local_grid,
@@ -116,7 +116,7 @@ class ProblemManager
         // First we create the generic halo pattern itself which can
         // handle non-persistent halos 
         int halo_depth = _local_grid->haloCellWidth();
-        _halo = CabanaGOL::createPartitionedHalo( Cabana::Grid::NodeHaloPattern<2>(), 
+        _halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
                     halo_depth, *_liveness_curr );
 
         // Initialize State Values ( liveness )

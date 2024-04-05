@@ -79,7 +79,7 @@ struct Liveness
  * @brief ProblemManager class to store the mesh and state values, and
  * to perform gathers and scatters in the approprate number of dimensions.
  **/
-template <class ExecutionSpace, class MemorySpace>
+template <class ExecutionSpace, class MemorySpace, class ViewLayout>
 class ProblemManager
 {
   public:
@@ -87,10 +87,11 @@ class ProblemManager
     using execution_space = ExecutionSpace;
 
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    using kokkos_layout = ViewLayout;
     using cell_array = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type, 
-                           MemorySpace>;
+                           kokkos_layout, memory_space>;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using halo_type = Cabana::Grid::Halo<MemorySpace>;
+    using halo_type = Cabana::Grid::Halo<memory_space>;
 
     template <class InitFunc>
     ProblemManager( const std::shared_ptr<grid_type>& local_grid,
@@ -104,12 +105,12 @@ class ProblemManager
             Cabana::Grid::createArrayLayout( _local_grid, 1, Cabana::Grid::Cell() );
 
         // The actual arrays storing mesh quantities
-        _liveness_curr = Cabana::Grid::createArray<double, MemorySpace>(
+        _liveness_curr = Cabana::Grid::createArray<double, kokkos_layout, memory_space>(
             "liveness", cell_scalar_layout );
-        _liveness_next = Cabana::Grid::createArray<double, MemorySpace>(
+        _liveness_next = Cabana::Grid::createArray<double, kokkos_layout, memory_space>(
             "liveness", cell_scalar_layout );
-        Cabana::Grid::ArrayOp::assign( *_liveness_curr, 0.0, Cabana::Grid::Ghost() );
-        Cabana::Grid::ArrayOp::assign( *_liveness_next, 0.0, Cabana::Grid::Ghost() );
+        //Cabana::Grid::ArrayOp::assign( *_liveness_curr, 0.0, Cabana::Grid::Ghost() );
+        //Cabana::Grid::ArrayOp::assign( *_liveness_next, 0.0, Cabana::Grid::Ghost() );
 
         // Halo patterns for the just liveness. This halo is just one cell deep,
         // as we only look at that much data to calculate changes in state.

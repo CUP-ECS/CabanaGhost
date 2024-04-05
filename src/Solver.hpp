@@ -36,18 +36,21 @@ class SolverBase
 //---------------------------------------------------------------------------//
 namespace Approach {
   struct Flat {};
-  template <std::size_t Blocks> struct Hierarchical {};
+  template <std::size_t Blocks> struct Hierarchical {}; // XXX should this be number of blocks or tile size?
   struct Host {};
   struct Kernel {};
 } // namespace Approach
 
 //---------------------------------------------------------------------------//
 
-template <class ExecutionSpace, class MemorySpace, int Dims, class CompApproach, class CommApproach>
+template <class ExecutionSpace, class MemorySpace, class ViewLayout, int Dims, 
+          class CompApproach, class CommApproach>
 class Solver : public SolverBase
 {
   public:
     using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
+    // XXX Make this conditional on Dims
+    using view_type = Kokkos::View<double ***, ViewLayout, MemorySpace>;
 
     template <class InitFunc>
     Solver( const std::array<int, Dims> & global_num_cells, 
@@ -78,10 +81,10 @@ class Solver : public SolverBase
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, 1 );
 
         // Create a problem manager to manage mesh state
-        _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>( _local_grid, create_functor );
+        _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace, ViewLayout>>( _local_grid, create_functor );
 
         // Set up Silo for I/O
-        _silo = std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( *_pm );
+        _silo = std::make_unique<SiloWriter<ExecutionSpace, MemorySpace, ViewLayout>>( *_pm );
     }
 
     void setup()
@@ -93,8 +96,7 @@ class Solver : public SolverBase
     // XXX Generalize this by passing in the functor and the 
     // dimension ofhte functor to make this a general halo
     // exchange benchmark
-    struct golFunctor {
-        using view_type = Kokkos::View<double ***, MemorySpace>;
+    struct gol2DFunctor {
         view_type _src_array, _dst_array;
 
         KOKKOS_INLINE_FUNCTION void operator()(int i, int j) const {
@@ -118,7 +120,7 @@ class Solver : public SolverBase
                     _dst_array(i, j, 0) = 0.0;
             }
         };
-        golFunctor(view_type s, view_type d)
+        gol2DFunctor(view_type s, view_type d)
             : _src_array(s), _dst_array(d)
         {}
     };
@@ -138,7 +140,7 @@ class Solver : public SolverBase
                                   Version::Current() ).view();
         auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
                                   Version::Next() ).view();
-        struct golFunctor gol(src_view, dst_view);
+        struct gol2DFunctor gol(src_view, dst_view);
 
         // 2. Figure ouyt the portion of that data that we own and need to 
         // compute. Note the assumption that the Ghost data is already up
@@ -364,8 +366,8 @@ class Solver : public SolverBase
     
     std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
 
-    std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
-    std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace>> _silo;
+    std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace, ViewLayout>> _pm;
+    std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace, ViewLayout>> _silo;
 };
 
 //---------------------------------------------------------------------------//
@@ -380,8 +382,8 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_unique<
-            Solver<Kokkos::Serial, Kokkos::HostSpace, 2, Approach::Flat, Approach::Host>
-            >(global_num_cell, create_functor);
+            Solver<Kokkos::Serial, Kokkos::HostSpace, Kokkos::LayoutLeft, 2, 
+                   Approach::Flat, Approach::Host>>(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
 #endif
@@ -390,8 +392,8 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_unique<
-            Solver<Kokkos::Threads, Kokkos::HostSpace, 2, Approach::Flat, Approach:Host>
-            >( global_num_cell, create_functor );
+            Solver<Kokkos::Threads, Kokkos::HostSpace, Kokkos::LayoutLeft, 2,
+                   Approach::Flat, Approach:Host>>( global_num_cell, create_functor );
 #else
         throw std::runtime_error( "Threads Backend Not Enabled" );
 #endif
@@ -409,7 +411,8 @@ createSolver( const std::string& device,
     {
 #if defined(KOKKOS_ENABLE_CUDA)
         return std::make_unique<
-            Solver<Kokkos::Cuda, Kokkos::CudaSpace, 2, Approach::Flat, Approach:Host>>(global_num_cell, create_functor);
+            Solver<Kokkos::Cuda, Kokkos::CudaSpace, Kokkos::LayoutLeft, 2, 
+                   Approach::Flat, Approach:Host>>(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
 #endif

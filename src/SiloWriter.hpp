@@ -30,14 +30,14 @@ namespace CabanaGOL
  * @class SiloWriter
  * @brief SiloWriter class to write results to Silo file using PMPIO
  **/
-template <class ExecutionSpace, class MemorySpace>
+template <class ExecutionSpace, class MemorySpace, class ViewLayout>
 class SiloWriter
 {
   public:
     using mem_type = MemorySpace;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
+    using pm_type = ProblemManager<ExecutionSpace, MemorySpace, ViewLayout>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     /**
      * Constructor

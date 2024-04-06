@@ -382,7 +382,7 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_unique<
-            Solver<Kokkos::Serial, Kokkos::HostSpace, Kokkos::LayoutLeft, 2, 
+            Solver<Kokkos::Serial, Kokkos::HostSpace, Kokkos::LayoutRight, 2, 
                    Approach::Flat, Approach::Host>>(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
@@ -392,7 +392,7 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_unique<
-            Solver<Kokkos::Threads, Kokkos::HostSpace, Kokkos::LayoutLeft, 2,
+            Solver<Kokkos::Threads, Kokkos::HostSpace, Kokkos::LayoutRight, 2,
                    Approach::Flat, Approach:Host>>( global_num_cell, create_functor );
 #else
         throw std::runtime_error( "Threads Backend Not Enabled" );

@@ -17,6 +17,7 @@
 
 #include "ProblemManager.hpp"
 #include "SiloWriter.hpp"
+#include "NestedParallel.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -187,36 +188,49 @@ class Solver : public SolverBase
         
         // 1. Determine the number of teams in the league (the league size), based on the block size 
         // we want to communicate in each dimension. Start assuming square blocks.
-        int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
         int blocks_per_dim = 2;
-        int block_size = (iextent + blocks_per_dim - 1)/blocks_per_dim;
-        int league_size = blocks_per_dim * blocks_per_dim;
-        int istart = own_cells.min(0), jstart = own_cells.min(1);
-        int iend = own_cells.max(0), jend = own_cells.max(1);
+  //      int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
+  //      int block_size = (iextent + blocks_per_dim - 1)/blocks_per_dim;
+  //      int league_size = blocks_per_dim * blocks_per_dim;
+  //      int istart = own_cells.min(0), jstart = own_cells.min(1);
+  //      int iend = own_cells.max(0), jend = own_cells.max(1);
+        //typedef typename Kokkos::TeamPolicy<ExecutionSpace>::member_type member_type;
 
-        typedef typename Kokkos::TeamPolicy<ExecutionSpace>::member_type member_type;
-        Kokkos::TeamPolicy<ExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
-        Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
-            KOKKOS_LAMBDA(member_type team_member) 
+        // Options:
+        // 1. Make a NestedIndexSpace abstraction - encapsulates the type we need 
+        // 2. Make a createNestedExecutionSpace 
+        NestedIndexSpace<ExecutionSpace, 2> tile_space(own_cells, 
+                                                       {blocks_per_dim, blocks_per_dim});
+        auto mesh_policy = createNestedExecutionPolicy(tile_space);
+
+        //Kokkos::TeamPolicy<ExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
+        // Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
+        //    KOKKOS_LAMBDA(member_type team_member) 
+        //Kokkos::parallel_for("Tile parallel loop", createExecutionPolicy(tile_space),
+        //    KOKKOS_LAMBDA(typename tile_space::member_type team_member) 
+        Kokkos::parallel_for("Mesh tile loop", mesh_policy,
+            KOKKOS_LAMBDA(typename NestedIndexSpace<ExecutionSpace, 2>::member_type team_member) 
         {
             // Figure out the i/j pieces of the block this team member is responsible for
-            int league_rank = team_member.league_rank();
-            int itile = league_rank / blocks_per_dim,
-                jtile = league_rank % blocks_per_dim;
-            int ibase = istart + itile * block_size,
-                jbase = jstart + jtile * block_size;
-            int ilimit = std::min(ibase + block_size, iend),
-                jlimit = std::min(jbase + block_size, jend);
-            int iextent = ilimit - ibase,
-                jextent = jlimit - jbase;
+            //int league_rank = team_member.league_rank();
+            //int itile = league_rank / blocks_per_dim,
+            //    jtile = league_rank % blocks_per_dim;
+            //int ibase = istart + itile * block_size,
+            //    jbase = jstart + jtile * block_size;
+            //int ilimit = std::min(ibase + block_size, iend),
+            //    jlimit = std::min(jbase + block_size, jend);
+            //int iextent = ilimit - ibase,
+            //    jextent = jlimit - jbase;
 
-            // 2. Now the team of threads iterates over the block it is responsible for. Each thread
-            // in the team may handle multiple indexes, depending on the size of the team.
-            auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
-            Kokkos::parallel_for(block, [&](int i, int j)
-            {
-                gol(ibase + i, jbase + j);
-            });
+
+            // 2. Now the team of threads iterates over the block it is responsible for. Each 
+            // thread in the team may handle multiple indexes, depending on the size of the team.
+            // auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
+            // Kokkos::parallel_for(block, [&](int i, int j)
+            // {
+            //     gol(ibase + i, jbase + j);
+            // });
+            nested_parallel_for("Tile index loop", tile_space, team_member, gol);
 
             // 3. Finally, any team-specific operations that need the block to be completed
             // can be done by using a team_barrier, for example block-specific communication. 

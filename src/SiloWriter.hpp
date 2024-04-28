@@ -141,9 +141,9 @@ class SiloWriter
         // Silo is expecting row-major data so we make this a LayoutRight
         // array that we copy data into and then get a mirror view of.
         // XXX WHY DOES THIS ONLY WORK LAYOUTLEFT?
-        Kokkos::View<typename pm_type::cell_array::value_type***,
+        Kokkos::View<typename pm_type::cell_array_type::value_type***,
                      Kokkos::LayoutLeft,
-                     typename pm_type::cell_array::device_type>
+                     typename pm_type::cell_array_type::device_type>
             qOwned( "qowned", cell_domain.extent( 0 ), cell_domain.extent( 1 ),
                     1 );
         Kokkos::parallel_for(

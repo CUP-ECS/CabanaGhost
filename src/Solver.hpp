@@ -49,8 +49,9 @@ class Solver : public SolverBase
 {
   public:
     using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
-    // XXX Make this conditional on Dims
-    using view_type = Kokkos::View<double ***, ViewLayout, MemorySpace>;
+    using pm_type = ProblemManager<ExecutionSpace, MemorySpace, ViewLayout>;
+    using array_type = typename pm_type::cell_array_type;
+    using view_type = typename array_type::view_type;
 
     template <class InitFunc>
     Solver( const std::array<int, Dims> & global_num_cells, 
@@ -177,7 +178,7 @@ class Solver : public SolverBase
         auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() ).view();
         struct golFunctor gol(src_view, dst_view);
 
-        // 2. Figure ouyt the portion of that data that we own and need to 
+        // 2. Figure out the portion of that data that we own and need to 
         // compute. Note the assumption that the Ghost data is already up
         // to date here.
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
@@ -372,17 +373,17 @@ class Solver : public SolverBase
 
 //---------------------------------------------------------------------------//
 // Creation method.
-template <class InitFunc>
+template <unsigned long Dims, class InitFunc>
 std::unique_ptr<SolverBase>
 createSolver( const std::string& device,
-              const std::array<int, 2>& global_num_cell,
+              const std::array<int, Dims>& global_num_cell,
               const InitFunc& create_functor )
 {
     if ( 0 == device.compare( "serial" ) )
     {
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_unique<
-            Solver<Kokkos::Serial, Kokkos::HostSpace, Kokkos::LayoutRight, 2, 
+            Solver<Kokkos::Serial, Kokkos::HostSpace, Kokkos::LayoutRight, Dims, 
                    Approach::Flat, Approach::Host>>(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
@@ -392,7 +393,7 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_unique<
-            Solver<Kokkos::Threads, Kokkos::HostSpace, Kokkos::LayoutRight, 2,
+            Solver<Kokkos::Threads, Kokkos::HostSpace, Kokkos::LayoutRight, Dims,
                    Approach::Flat, Approach:Host>>( global_num_cell, create_functor );
 #else
         throw std::runtime_error( "Threads Backend Not Enabled" );
@@ -402,7 +403,7 @@ createSolver( const std::string& device,
     {
 #if defined( KOKKOS_ENABLE_OPENMP )
         return std::make_unique
-            Solver<Kokkos::OpenMP, Kokkos::HostSpace, 2>>(global_num_cell, create_functor);
+            Solver<Kokkos::OpenMP, Kokkos::HostSpace, Dims>>(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "OpenMP Backend Not Enabled" );
 #endif
@@ -411,7 +412,7 @@ createSolver( const std::string& device,
     {
 #if defined(KOKKOS_ENABLE_CUDA)
         return std::make_unique<
-            Solver<Kokkos::Cuda, Kokkos::CudaSpace, Kokkos::LayoutLeft, 2, 
+            Solver<Kokkos::Cuda, Kokkos::CudaSpace, Kokkos::LayoutLeft, Dims, 
                    Approach::Flat, Approach:Host>>(global_num_cell, create_functor);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
@@ -421,7 +422,7 @@ createSolver( const std::string& device,
     {
 #ifdef KOKKOS_ENABLE_HIP
         return std::make_unique<Solver<Kokkos::Experimental::HIP, 
-            Kokkos::Experimental::HIPSpace, 2>>(global_bounding_box, create_functor);
+            Kokkos::Experimental::HIPSpace, Dims>>(global_bounding_box, create_functor);
 #else
         throw std::runtime_error( "HIP Backend Not Enabled" );
 #endif

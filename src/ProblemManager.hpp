@@ -88,8 +88,8 @@ class ProblemManager
 
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using kokkos_layout = ViewLayout;
-    using cell_array = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type, 
-                           kokkos_layout, memory_space>;
+    using cell_array_type = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type, 
+                                kokkos_layout, memory_space>;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using halo_type = Cabana::Grid::Halo<memory_space>;
 
@@ -164,7 +164,7 @@ class ProblemManager
      * @param Version::Current
      * @return Returns array of current liveness at cell centers
      **/
-    cell_array get( Cabana::Grid::Cell, Field::Liveness,
+    cell_array_type get( Cabana::Grid::Cell, Field::Liveness,
                     Version::Current ) const
     {
         return *_liveness_curr;
@@ -177,7 +177,7 @@ class ProblemManager
      * @param Version::Next
      * @return Returns array of next liveness at cell centers
      **/
-    cell_array get( Cabana::Grid::Cell, Field::Liveness,
+    cell_array_type get( Cabana::Grid::Cell, Field::Liveness,
                     Version::Next ) const
     {
         return *_liveness_next;
@@ -225,7 +225,7 @@ class ProblemManager
     // Data items returned from Cabana create methods. Even though we likely hold the
     // only pointers these objects, they are shared_ptr instead of uniq_ptr because 
     // Cabana returns shared_ptr.
-    std::shared_ptr<cell_array> _liveness_curr, _liveness_next; // Data values
+    std::shared_ptr<cell_array_type> _liveness_curr, _liveness_next; // Data values
     std::shared_ptr<halo_type> _halo; // Persistent halos
 };
 

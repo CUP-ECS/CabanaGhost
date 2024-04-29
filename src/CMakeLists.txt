@@ -5,7 +5,7 @@ set(DEPENDS_ON
   MPI::MPI_CXX
   )
 
-add_executable( cabanagol Main.cpp )
+add_executable( cabanagol GOL.cpp )
 target_link_libraries( cabanagol PRIVATE ${DEPENDS_ON} )
 
 install(TARGETS cabanagol DESTINATION ${CMAKE_INSTALL_LIBDIR})

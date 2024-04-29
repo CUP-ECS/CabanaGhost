@@ -7,8 +7,8 @@
  * Silo Writer class to write results to a silo file using PMPIO
  */
 
-#ifndef CABANAGOL_SILOWRITER_HPP
-#define CABANAGOL_SILOWRITER_HPP
+#ifndef CABANAGHOST_SILOWRITER_HPP
+#define CABANAGHOST_SILOWRITER_HPP
 
 #ifndef DEBUG
 #define DEBUG 0
@@ -22,7 +22,7 @@
 #include <pmpio.h>
 #include <silo.h>
 
-namespace CabanaGOL
+namespace CabanaGhost
 {
 
 /**
@@ -30,14 +30,14 @@ namespace CabanaGOL
  * @class SiloWriter
  * @brief SiloWriter class to write results to Silo file using PMPIO
  **/
-template <class ExecutionSpace, class MemorySpace, class ViewLayout>
+template <unsigned long Dims, class ExecutionSpace, class MemorySpace, class ViewLayout>
 class SiloWriter
 {
   public:
     using mem_type = MemorySpace;
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace, ViewLayout>;
+    using pm_type = ProblemManager<Dims, ExecutionSpace, MemorySpace, ViewLayout>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     /**
      * Constructor
@@ -63,9 +63,9 @@ class SiloWriter
                     double dt )
     {
         // Initialize Variables
-        int dims[2], zdims[2];
-        double *coords[2]; 
-        // double *spacing[2];
+        int dims[Dims], zdims[Dims];
+        double *coords[Dims]; 
+        // double *spacing[Dims];
         const char* coordnames[3] = { "X", "Y", "Z" };
         DBoptlist* optlist;
 
@@ -93,28 +93,28 @@ class SiloWriter
         auto cell_domain = local_grid->indexSpace(
             Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
-        for ( unsigned int i = 0; i < 2; i++ )
+        for ( unsigned int i = 0; i < Dims; i++ )
         {
             zdims[i] = cell_domain.extent( i ); // zones (cells) in a dimension
             dims[i] = zdims[i] + 1;             // nodes in a dimension
         }
 
         // Allocate coordinate arrays in each dimension
-        for ( unsigned int i = 0; i < 2; i++ )
+        for ( unsigned int i = 0; i < Dims; i++ )
         {
             coords[i] = (double*)malloc( sizeof( double ) * dims[i] );
         }
 
         // Fill out coords[] arrays with coordinate values in each dimension
-        for ( unsigned int d = 0; d < 2; d++ )
+        for ( unsigned int d = 0; d < Dims; d++ )
         {
             for ( int i = cell_domain.min( d ); i < cell_domain.max( d ) + 1;
                   i++ )
             {
                 int iown = i - cell_domain.min( d );
-                int index[2];
-                double location[2];
-                for ( unsigned int j = 0; j < 2; j++ )
+                int index[Dims];
+                double location[Dims];
+                for ( unsigned int j = 0; j < Dims; j++ )
                     index[j] = 0;
                 index[d] = i;
                 local_mesh.coordinates( Cabana::Grid::Node(), index, location );
@@ -123,7 +123,7 @@ class SiloWriter
         }
 
         DBPutQuadmesh( dbfile, meshname, (DBCAS_t)coordnames, coords, dims,
-                       2, DB_DOUBLE, DB_COLLINEAR, optlist );
+                       Dims, DB_DOUBLE, DB_COLLINEAR, optlist );
         Kokkos::Profiling::popRegion();
 
         // Now we write the individual variables associated with this
@@ -155,11 +155,11 @@ class SiloWriter
         auto qHost =
             Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), qOwned );
 
-        DBPutQuadvar1( dbfile, "liveness", meshname, qHost.data(), zdims, 2,
+        DBPutQuadvar1( dbfile, "liveness", meshname, qHost.data(), zdims, Dims,
                        NULL, 0, DB_DOUBLE, DB_ZONECENT, optlist );
         Kokkos::Profiling::popRegion();
 
-        for ( unsigned int i = 0; i < 2; i++ )
+        for ( unsigned int i = 0; i < Dims; i++ )
         {
             free( coords[i] );
         }
@@ -183,7 +183,7 @@ class SiloWriter
         Kokkos::Profiling::pushRegion( "SiloWriter::CreateSiloFile" );
 
         DBfile* silo_file = DBCreate( filename, DB_CLOBBER, DB_LOCAL,
-                                      "CabanaGOLRaw", driver );
+                                      "CabanaGhostRaw", driver );
 
         if ( silo_file )
         {
@@ -267,10 +267,10 @@ class SiloWriter
             q_block_names[i] = (char*)malloc( 1024 );
 
             snprintf( mesh_block_names[i], 1024,
-                     "raw/CabanaGOLOutput%05d%05d.%s:/domain_%05d/Mesh",
+                     "raw/CabanaGhostOutput%05d%05d.%s:/domain_%05d/Mesh",
                      group_rank, time_step, file_ext, i );
             snprintf( q_block_names[i], 1024,
-                     "raw/CabanaGOLOutput%05d%05d.%s:/domain_%05d/liveness",
+                     "raw/CabanaGhostOutput%05d%05d.%s:/domain_%05d/liveness",
                      group_rank, time_step, file_ext, i );
             block_types[i] = DB_QUADMESH;
             var_types[i] = DB_QUADVAR;
@@ -330,9 +330,9 @@ class SiloWriter
                         createSiloFile, openSiloFile, closeSiloFile, &driver );
 
         // Set Filename to Reflect TimeStep
-        snprintf( masterfilename, 256, "data/CabanaGOL%05d.%s", time_step,
+        snprintf( masterfilename, 256, "data/CabanaGhost%05d.%s", time_step,
                  file_ext );
-        snprintf( filename, 256, "data/raw/CabanaGOLOutput%05d%05d.%s",
+        snprintf( filename, 256, "data/raw/CabanaGhostOutput%05d%05d.%s",
                  PMPIO_GroupRank( baton, rank ), time_step,
                  file_ext );
         snprintf( nsname, 256, "domain_%05d", rank );
@@ -350,7 +350,7 @@ class SiloWriter
         if ( rank == 0 )
         {
             master_file = DBCreate( masterfilename, DB_CLOBBER, DB_LOCAL,
-                                    "CabanaGOL", driver );
+                                    "CabanaGhost", driver );
             writeMultiObjects( master_file, baton, size, time_step, "silo" );
             DBClose( master_file );
         }
@@ -372,5 +372,5 @@ class SiloWriter
     const pm_type & _pm;
 };
 
-}; // namespace CabanaGOL
+}; // namespace CabanaGhost
 #endif

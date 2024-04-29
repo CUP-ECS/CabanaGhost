@@ -3,7 +3,8 @@
  * @author Patrick Bridges <pbridges@unm.edu>
  *
  * @section DESCRIPTION
- * Simple 2 or 3 dimensional game of life on a periodic Cabana mesh
+ * 2 dimensional game of life with cabana-provided arrays, interation, and 
+ * halo exchange primitives
  */
 
 #ifndef DEBUG
@@ -187,22 +188,29 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 }
 
 // Initialize field to a constant quantity and velocity
+template <class ArrayType>
 struct MeshInitFunc
 {
-    // Initialize Variables
-    double _q;
+    using array_type = ArrayType;
+    using view_type = typename array_type::view_type;
 
-    MeshInitFunc( double q, std::array<double, 2> u )
-        : _q( q )
+    view_type v;
+
+    MeshInitFunc( )
     {
     };
 
-    KOKKOS_INLINE_FUNCTION
-    bool operator()( Cabana::Grid::Cell, CabanaGOL::Field::Liveness,
-                     const int index[2], double& liveness ) const
+    void setArray(std::shared_ptr<array_type> a) 
     {
+        v = a->view();
+    }
+
+    KOKKOS_INLINE_FUNCTION
+    void operator()( int i, int j ) const
+    {
+        double liveness;
         /* We put a glider the in the middle of every 10 x 10 block. */
-        switch ((index[0] % 10) * 10 + index[1] % 10) {
+        switch ((i % 10) * 10 + j % 10) {
           case 33:
           case 34:
           case 44:
@@ -214,7 +222,7 @@ struct MeshInitFunc
             liveness = 0.0;
             break;
         }
-        return true;
+        v(i, j, 0) = liveness;
     };
 };
 
@@ -255,8 +263,8 @@ int main( int argc, char* argv[] )
     }
 
     // Call advection solver
-    MeshInitFunc initializer( 0.0, { 0.0, 0.0 } );
-    auto solver = CabanaGOL::createSolver( cl.device, cl.global_num_cells, initializer );
+    MeshInitFunc<Cabana::Grid::Array<double, Cabana::Grid::Cell, Cabana::Grid::UniformMesh<double, 2>>> initializer = {};
+    auto solver = CabanaGhost::createSolver( cl.device, cl.global_num_cells, initializer );
     solver->solve(cl.t_final, cl.write_freq);
 
     // We need to make sure the solver, which includes a bunch of Kokkos-related allocations

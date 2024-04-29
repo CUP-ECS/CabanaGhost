@@ -7,8 +7,8 @@
  * scatters and gathers
  */
 
-#ifndef CABANAGOL_PROBLEMMANAGER_HPP
-#define CABANAGOL_PROBLEMMANAGER_HPP
+#ifndef CABANAGHOST_PROBLEMMANAGER_HPP
+#define CABANAGHOST_PROBLEMMANAGER_HPP
 
 #ifndef DEBUG
 #define DEBUG 0
@@ -23,7 +23,7 @@
 
 #include <memory>
 
-namespace CabanaGOL
+namespace CabanaGhost
 {
 
 /**
@@ -79,14 +79,14 @@ struct Liveness
  * @brief ProblemManager class to store the mesh and state values, and
  * to perform gathers and scatters in the approprate number of dimensions.
  **/
-template <class ExecutionSpace, class MemorySpace, class ViewLayout>
+template <unsigned long Dims, class ExecutionSpace, class MemorySpace, class ViewLayout>
 class ProblemManager
 {
   public:
     using memory_space = MemorySpace;
     using execution_space = ExecutionSpace;
 
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
     using kokkos_layout = ViewLayout;
     using cell_array_type = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type, 
                                 kokkos_layout, memory_space>;
@@ -117,7 +117,7 @@ class ProblemManager
         // First we create the generic halo pattern itself which can
         // handle non-persistent halos 
         int halo_depth = _local_grid->haloCellWidth();
-        _halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
+        _halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<Dims>(), 
                     halo_depth, *_liveness_curr );
 
         // Initialize State Values ( liveness )
@@ -137,15 +137,8 @@ class ProblemManager
         // Loop Over All Owned Cells ( i, j )
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(),
                                                   Cabana::Grid::Local() );
-        Kokkos::parallel_for(
-            "Initialize Cells`",
-            Cabana::Grid::createExecutionPolicy( own_cells, ExecutionSpace() ),
-            KOKKOS_LAMBDA( const int i, const int j ) {
-                // Get Coordinates Associated with Indices ( i, j )
-                int coords[2] = { i, j };
-                create_functor( Cabana::Grid::Cell(), Field::Liveness(), coords,
-                                l( i, j, 0 ) );
-            } );
+        Cabana::Grid::grid_parallel_for( "Initialize Cells", 
+            ExecutionSpace(), own_cells, create_functor );
     };
 
     /**
@@ -229,6 +222,6 @@ class ProblemManager
     std::shared_ptr<halo_type> _halo; // Persistent halos
 };
 
-} // namespace CabanaGOL
+} // namespace CabanaGhost
 
-#endif // CABANAGOL_PROBLEMMANAGER_HPP
+#endif // CABANAGHOST_PROBLEMMANAGER_HPP

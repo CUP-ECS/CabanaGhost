@@ -1,16 +1,16 @@
 /****************************************************************************
- * Copyright (c) 2020-2022 by the CabanaGOL authors                         *
+ * Copyright (c) 2020-2022 by the CabanaGhost authors                       *
  * All rights reserved.                                                     *
  *                                                                          *
- * This file is part of CabanaGOL. CabanaGOL is                             *
+ * This file is part of CabanaGhost. CabanaGhost is                         *
  * distributed under a BSD 3-clause license. For the licensing terms see    *
  * the LICENSE file in the top-level directory.                             *
  *                                                                          *
  * SPDX-License-Identifier: BSD-3-Clause                                    *
  ****************************************************************************/
 
-#ifndef CABANAGOL_SOLVER_HPP
-#define CABANAGOL_SOLVER_HPP
+#ifndef CABANAGHOST_SOLVER_HPP
+#define CABANAGHOST_SOLVER_HPP
 
 #include <Kokkos_Core.hpp>
 #include <Cabana_Grid.hpp>
@@ -24,7 +24,7 @@
 
 #include <mpi.h>
 
-namespace CabanaGOL
+namespace CabanaGhost
 {
 class SolverBase
 {
@@ -49,7 +49,7 @@ class Solver : public SolverBase
 {
   public:
     using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace, ViewLayout>;
+    using pm_type = ProblemManager<Dims, ExecutionSpace, MemorySpace, ViewLayout>;
     using array_type = typename pm_type::cell_array_type;
     using view_type = typename array_type::view_type;
 
@@ -82,10 +82,10 @@ class Solver : public SolverBase
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, 1 );
 
         // Create a problem manager to manage mesh state
-        _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace, ViewLayout>>( _local_grid, create_functor );
+        _pm = std::make_unique<ProblemManager<Dims, ExecutionSpace, MemorySpace, ViewLayout>>( _local_grid, create_functor );
 
         // Set up Silo for I/O
-        _silo = std::make_unique<SiloWriter<ExecutionSpace, MemorySpace, ViewLayout>>( *_pm );
+        _silo = std::make_unique<SiloWriter<Dims, ExecutionSpace, MemorySpace, ViewLayout>>( *_pm );
     }
 
     void setup()
@@ -367,8 +367,8 @@ class Solver : public SolverBase
     
     std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
 
-    std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace, ViewLayout>> _pm;
-    std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace, ViewLayout>> _silo;
+    std::unique_ptr<ProblemManager<Dims, ExecutionSpace, MemorySpace, ViewLayout>> _pm;
+    std::unique_ptr<SiloWriter<Dims, ExecutionSpace, MemorySpace, ViewLayout>> _silo;
 };
 
 //---------------------------------------------------------------------------//
@@ -438,5 +438,5 @@ createSolver( const std::string& device,
 
 } // end namespace Beatnik
 
-#endif // end CABANAGOL_SOLVER_HPP
+#endif // end CABANAGHOST_SOLVER_HPP
 

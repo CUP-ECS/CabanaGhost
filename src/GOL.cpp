@@ -188,25 +188,14 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 }
 
 // Initialize field to a constant quantity and velocity
-template <class ArrayType>
 struct MeshInitFunc
 {
-    using array_type = ArrayType;
-    using view_type = typename array_type::view_type;
-
-    view_type v;
-
     MeshInitFunc( )
     {
     };
 
-    void setArray(std::shared_ptr<array_type> a) 
-    {
-        v = a->view();
-    }
-
     KOKKOS_INLINE_FUNCTION
-    void operator()( int i, int j ) const
+    double operator()( int i, int j ) const
     {
         double liveness;
         /* We put a glider the in the middle of every 10 x 10 block. */
@@ -216,13 +205,13 @@ struct MeshInitFunc
           case 44:
           case 45:
           case 53:
-            liveness = 1.0; 
+            return 1.0; 
             break;
           default:
-            liveness = 0.0;
+            return 0.0;
             break;
         }
-        v(i, j, 0) = liveness;
+        return 0.0;
     };
 };
 
@@ -263,14 +252,14 @@ int main( int argc, char* argv[] )
     }
 
     // Call advection solver
-    MeshInitFunc<Cabana::Grid::Array<double, Cabana::Grid::Cell, Cabana::Grid::UniformMesh<double, 2>>> initializer = {};
+    MeshInitFunc initializer;
     auto solver = CabanaGhost::createSolver( cl.device, cl.global_num_cells, initializer );
     solver->solve(cl.t_final, cl.write_freq);
 
-    // We need to make sure the solver, which includes a bunch of Kokkos-related allocations
-    // is shut down before we shut down Kokkos. TO do that, we simply set teh solver pointer 
-    // to nullptr; this will cause its reference count to go to zero and for it and everything
-    // it points to to be freed.
+    /* We need to make sure the solver, which includes a bunch of Kokkos-related allocations
+     * is shut down before we shut down Kokkos. To do that, we simply set the solver pointer 
+     * to nullptr; this will cause its reference count to go to zero and for it and everything
+     * it points to that are reference counted be freed. */
     solver = nullptr;
 
     // Shut things down

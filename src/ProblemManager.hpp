@@ -90,6 +90,7 @@ class ProblemManager
     using kokkos_layout = ViewLayout;
     using cell_array_type = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type, 
                                 kokkos_layout, memory_space>;
+    using view_type = typename cell_array_type::view_type;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using halo_type = Cabana::Grid::Halo<memory_space>;
 
@@ -124,6 +125,27 @@ class ProblemManager
         initialize( create_functor );
     }
 
+    template <class ViewType, class CellFunctor>
+    struct ViewFunctor {
+        CellFunctor _f;
+        ViewType _v;
+        ViewFunctor(ViewType v, CellFunctor f) 
+            : _v(v), _f(f) {
+        };
+        KOKKOS_INLINE_FUNCTION
+        void operator()( const int i, const int j ) const
+            requires (Dims == 2)
+        {
+            _v(i, j, 0) = _f(i, j);
+        };
+        KOKKOS_INLINE_FUNCTION
+        void operator()( const int i, const int j, const int k ) const
+            requires (Dims == 3)
+        {
+            _v(i, j, k, 0) = _f(i, j, k);
+        };
+    };
+
     /**
      * Initializes state values in the cells
      * @param create_functor Initialization function
@@ -132,13 +154,17 @@ class ProblemManager
     void initialize( const InitFunctor& create_functor )
     {
         // Get State Arrays
-        auto l = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() ).view();
+        cell_array_type a = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
+        view_type v = a.view();
 
         // Loop Over All Owned Cells ( i, j )
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(),
                                                   Cabana::Grid::Local() );
+
+        ViewFunctor<view_type, InitFunctor> vf(v, create_functor);
+
         Cabana::Grid::grid_parallel_for( "Initialize Cells", 
-            ExecutionSpace(), own_cells, create_functor );
+            ExecutionSpace(), own_cells, vf );
     };
 
     /**

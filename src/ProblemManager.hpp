@@ -83,11 +83,14 @@ template <unsigned long Dims>
 class ProblemManager
 {
   public:
-    using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
-    using cell_array_type = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type>;
+    using global_mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
+    using cell_array_type = Cabana::Grid::Array<double, Cabana::Grid::Cell, global_mesh_type>;
+    using device_type = typename cell_array_type::device_type;
+    using memory_space = typename cell_array_type::memory_space;
     using view_type = typename cell_array_type::view_type;
-    using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using halo_type = Cabana::Grid::Halo<typename Kokkos::DefaultExecutionSpace::memory_space>;
+    using grid_type = Cabana::Grid::LocalGrid<global_mesh_type>;
+    using local_mesh_type = Cabana::Grid::LocalMesh<memory_space, global_mesh_type>;
+    using halo_type = Cabana::Grid::Halo<memory_space>;
 
     template <class InitFunc>
     ProblemManager( const std::shared_ptr<grid_type>& local_grid,
@@ -120,24 +123,31 @@ class ProblemManager
         initialize( create_functor );
     }
 
-    template <class ViewType, class CellFunctor>
+    template <class ViewType, class CellFunctor, class LocalMesh>
     struct ViewFunctor {
         CellFunctor _f;
         ViewType _v;
-        ViewFunctor(ViewType v, CellFunctor f) 
-            : _v(v), _f(f) {
+        LocalMesh _m;
+        ViewFunctor(ViewType v, CellFunctor f, LocalMesh m) 
+            : _v(v), _f(f), _m(m) {
         };
         KOKKOS_INLINE_FUNCTION
         void operator()( const int i, const int j ) const
             requires (Dims == 2)
         {
-            _v(i, j, 0) = _f(i, j);
+            int index[Dims] = {i, j};
+            double coords[Dims];
+	    _m.coordinates( Cabana::Grid::Cell(), index, coords);
+            _v(i, j, 0) = _f(index, coords);
         };
         KOKKOS_INLINE_FUNCTION
         void operator()( const int i, const int j, const int k ) const
             requires (Dims == 3)
         {
-            _v(i, j, k, 0) = _f(i, j, k);
+            int index[Dims] = {i, j, k};
+            double coords[Dims];
+	    _m.coordinates( Cabana::Grid::Cell(), index, coords);
+            _v(i, j, k, 0) = _f(index, coords);
         };
     };
 
@@ -148,18 +158,33 @@ class ProblemManager
     template <class InitFunctor>
     void initialize( const InitFunctor& create_functor )
     {
+        // Get mesh information
+        local_mesh_type local_mesh(*_local_grid);
+
         // Get State Arrays
         cell_array_type a = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
         view_type v = a.view();
 
-        // Loop Over All Owned Cells ( i, j )
+        // Loop Over and initialize all owned cells ( i, j )
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(),
                                                   Cabana::Grid::Local() );
 
-        ViewFunctor<view_type, InitFunctor> vf(v, create_functor);
+        ViewFunctor<view_type, InitFunctor, local_mesh_type> vf(v, create_functor, local_mesh);
 
-        Cabana::Grid::grid_parallel_for( "Initialize Cells", 
-            Kokkos::DefaultExecutionSpace(), own_cells, vf );
+        // We also initialize any boundary (non-periodic) ghost cells.
+        for (int i = -1; i <= 1; i++) {
+            for (int j = -1; j <= 1; j++) {
+                for (int k = -1; k <= 1; k++) {
+                    std::array<int, Dims> dir;
+		    dir[0] = i; dir[1] = j; if (Dims == 3) dir[2] = k;
+                    auto boundary_cells = 
+                        _local_grid->boundaryIndexSpace( Cabana::Grid::Ghost(), 
+						         Cabana::Grid::Cell(), dir);
+                    Cabana::Grid::grid_parallel_for( "Initialize Boundaries", 
+                        Kokkos::DefaultExecutionSpace(), boundary_cells, vf );
+                 }
+            }
+        }
     };
 
     /**

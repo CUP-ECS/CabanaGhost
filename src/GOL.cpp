@@ -173,8 +173,9 @@ struct MeshInitFunc
     };
 
     KOKKOS_INLINE_FUNCTION
-    double operator()( int i, int j ) const
+    double operator()( int index[2], double coords[2] ) const
     {
+        int i = coords[0], j = coords[1];
         double liveness;
         /* We put a glider the in the middle of every 10 x 10 block. */
         switch ((i % 10) * 10 + j % 10) {
@@ -266,7 +267,7 @@ int main( int argc, char* argv[] )
         MeshInitFunc initializer;
         GOL2DFunctor gol2Dfunctor;
         Solver<2, GOL2DFunctor, Approach::Flat, Approach::Host> 
-            solver( cl.global_num_cells, gol2Dfunctor, initializer );
+            solver( cl.global_num_cells, true, gol2Dfunctor, initializer );
         solver.solve(cl.t_final, cl.write_freq); 
     }
 

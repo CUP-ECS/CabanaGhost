@@ -47,7 +47,7 @@ class Solver
     using view_type = typename array_type::view_type;
 
     template <class InitFunc>
-    Solver( const std::array<int, Dims> & global_num_cells, 
+    Solver( const std::array<int, Dims> & global_num_cells, bool periodic, 
             IterationFunctor& iteration_functor, const InitFunc& create_functor ) 
         : _time( 0 ), _iter_func(iteration_functor)
     {
@@ -63,14 +63,14 @@ class Solver
                                global_low_corner, global_high_corner, global_num_cells );
 
         // Build the mesh partitioner and global grid.
-        std::array<bool, Dims> periodic;
+        std::array<bool, Dims> p;
         for (int d = 0; d < Dims; ++d) 
         {
-            periodic[d] = true;
+            p[d] = periodic;
         }
         Cabana::Grid::DimBlockPartitioner<Dims> partitioner;
         auto global_grid = Cabana::Grid::createGlobalGrid( MPI_COMM_WORLD, global_mesh,
-                               periodic, partitioner );
+                               p, partitioner );
         // Build the local grid. 
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, 1 );
 

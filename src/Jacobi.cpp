@@ -193,8 +193,14 @@ struct MeshInitFunc
     };
 
     KOKKOS_INLINE_FUNCTION
-    double operator()( int i, int j, int k ) const
+    double operator()( const int index[3], const double coords[3] ) const
     {
+        int d;
+
+        
+        for (d = 0; d < 3; d++)
+            if (coords[d] < 1.0) return 100.0;
+
         return 0.0;
     };
 };
@@ -266,7 +272,7 @@ int main( int argc, char* argv[] )
         MeshInitFunc initializer;
         JacobiFunctor iteration_functor;
         Solver<3, JacobiFunctor, Approach::Flat, Approach::Host> 
-            solver(cl.global_num_cells, iteration_functor, initializer );
+            solver(cl.global_num_cells, false, iteration_functor, initializer );
         solver.solve(cl.tolerance, cl.max_iterations, cl.write_freq);
     }
 

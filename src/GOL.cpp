@@ -99,7 +99,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /// Set default values
     cl.t_final = 100;
-    cl.write_freq = 1;
+    cl.write_freq = 0;
     cl.global_num_cells = { 128, 128 };
 
     int ch;

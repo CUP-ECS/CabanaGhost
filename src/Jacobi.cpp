@@ -105,7 +105,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /// Set default values
     cl.max_iterations = 1000;
-    cl.write_freq = 1;
+    cl.write_freq = 0;
     cl.global_num_cells = { 64, 64, 64 };
     cl.tolerance = 0.001;
 

@@ -263,7 +263,7 @@ class Solver
         requires (std::same_as<Approach::Flat, CompApproach> 
                   && std::same_as<Approach::Host, CommApproach>)
     {
-        // Compute difference between previous and currenet time step
+        // XXX Compute difference between previous and current time step
         // grid_parallel_reduce();
         // do a global allreduce of that.
         return false;
@@ -298,8 +298,9 @@ class Solver
                 _silo->siloWrite( strdup( "Mesh" ), t, _time, 1 );
             }
  
-            if (tol > 0) {
+            if (tol > 0.0) {
                 converged = checkConvergence(tol);
+		std::cout << "Convergence (" << _time << "): " << converged << "\n";
             }
         } while ( !converged && ( _time < t_max ) );
     }

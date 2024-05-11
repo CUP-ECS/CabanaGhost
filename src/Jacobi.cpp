@@ -257,7 +257,10 @@ int main( int argc, char* argv[] )
         std::cout << std::left << std::setw( 20 ) << "Cells"
                   << ": " << std::setw( 8 ) << cl.global_num_cells[0]
                   << std::setw( 8 ) << cl.global_num_cells[1]
+                  << std::setw( 8 ) << cl.global_num_cells[2]
                   << "\n"; // Number of Cells
+        std::cout << std::left << std::setw( 20 ) << "Tolerance"
+                  << ": " << std::setw( 8 ) << cl.tolerance << "\n";
         std::cout << std::left << std::setw( 20 ) << "Max Iterations"
                   << ": " << std::setw( 8 ) << cl.max_iterations << "\n";
         std::cout << std::left << std::setw( 20 ) << "Write Frequency"
@@ -273,7 +276,7 @@ int main( int argc, char* argv[] )
         JacobiFunctor iteration_functor;
         Solver<3, JacobiFunctor, Approach::Flat, Approach::Host> 
             solver(cl.global_num_cells, false, iteration_functor, initializer );
-        solver.solve(cl.tolerance, cl.max_iterations, cl.write_freq);
+        solver.solve(cl.max_iterations, cl.tolerance, cl.write_freq);
     }
 
     // Shut things down

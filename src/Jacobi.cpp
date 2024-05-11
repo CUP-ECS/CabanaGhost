@@ -3,7 +3,7 @@
  * @author Patrick Bridges <pbridges@unm.edu>
  *
  * @section DESCRIPTION
- * 2 dimensional game of life with cabana-provided arrays, interation, and 
+ * 3 dimensional jacobi iteration with cabana-provided arrays, interation, and 
  * halo exchange primitives
  */
 
@@ -43,9 +43,10 @@ static char* shortargs = (char*)"n:t:x:F:h";
 static option longargs[] = {
     // Basic simulation parameters
     { "ncells", required_argument, NULL, 'n' },
-    { "timesteps", required_argument, NULL, 't' },
-    { "driver", required_argument, NULL, 'x' },
+    { "max-iterations", required_argument, NULL, 'm' },
+    { "tolerance", required_argument, NULL, 't' },
     { "write-freq", required_argument, NULL, 'F' },
+    { "driver", required_argument, NULL, 'x' },
     { "help", no_argument, NULL, 'j' },
     { 0, 0, 0, 0 } };
 
@@ -56,9 +57,11 @@ static option longargs[] = {
  */
 struct ClArgs
 {
-    std::array<int, 2> global_num_cells;          /**< Number of cells */
-    int t_final; /**< Ending time */
-    int write_freq;     /**< Write frequency */
+    std::string device; /**< ( Serial, Threads, OpenMP, CUDA ) */
+    std::array<int, 3> global_num_cells;          /**< Number of cells */
+    int max_iterations; /**< Ending time */
+    double tolerance;       /**< Convergence criteria */
+    int write_freq;      /**< Write frequency */
 };
 
 /**
@@ -73,8 +76,11 @@ void help( const int rank, char* progname )
         std::cout << "Usage: " << progname << "\n";
         std::cout << std::left << std::setw( 10 ) << "-n" << std::setw( 40 )
                   << "Number of Cells (default 128)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-m" << std::setw( 40 )
+                  << "Max number of iterations to calculate (default 1000)" 
+                  << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
-                  << "NUmber of timesteps to simulate (default 4.0)" 
+                  << "Convergence tolerance (default 0.001)" 
                   << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-F" << std::setw( 40 )
                   << "Write Frequency (default 20)" << std::left << "\n";
@@ -86,8 +92,8 @@ void help( const int rank, char* progname )
 /**
  * Parses command line input and updates the command line variables
  * accordingly.
- * Usage: ./[program] [-h help] [-n number-of-cells]
- * [-t number-time-steps] [-F write-frequency]
+ * Usage: ./[program] [-h help] [-n number-of-cells] [-t max-time-steps] 
+ *                    [-T tolerance] [-F write-frequency] 
  * @param rank The rank calling the function
  * @param argc Number of command line options passed to program
  * @param argv List of command line options passed to program
@@ -98,9 +104,10 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 {
 
     /// Set default values
-    cl.t_final = 100;
+    cl.max_iterations = 1000;
     cl.write_freq = 1;
-    cl.global_num_cells = { 128, 128 };
+    cl.global_num_cells = { 64, 64, 64 };
+    cl.tolerance = 0.001;
 
     int ch;
     // Now parse any arguments
@@ -121,10 +128,23 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 exit( -1 );
             }
             cl.global_num_cells[1] = cl.global_num_cells[0];
+            cl.global_num_cells[2] = cl.global_num_cells[0];
+            break;
+        case 'm':
+            cl.max_iterations = atoi( optarg );
+            if ( cl.max_iterations <= 0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid timesteps argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
             break;
         case 't':
-            cl.t_final = atoi( optarg );
-            if ( cl.t_final <= 0 )
+            cl.tolerance = atof( optarg );
+            if ( cl.tolerance <= 0 )
             {
                 if ( rank == 0 )
                 {
@@ -173,28 +193,14 @@ struct MeshInitFunc
     };
 
     KOKKOS_INLINE_FUNCTION
-    double operator()( int i, int j ) const
+    double operator()( int i, int j, int k ) const
     {
-        double liveness;
-        /* We put a glider the in the middle of every 10 x 10 block. */
-        switch ((i % 10) * 10 + j % 10) {
-          case 33:
-          case 34:
-          case 44:
-          case 45:
-          case 53:
-            return 1.0; 
-            break;
-          default:
-            return 0.0;
-            break;
-        }
         return 0.0;
     };
 };
 
-struct GOL2DFunctor {
-    using view_type = Kokkos::View<double ***>;
+struct JacobiFunctor {
+    using view_type = Kokkos::View<double ****>;
     view_type _src_array, _dst_array;
 
     void setViews(const view_type s, const view_type d) {
@@ -202,28 +208,20 @@ struct GOL2DFunctor {
             _dst_array = d;
     }
 
-    KOKKOS_INLINE_FUNCTION void operator()(int i, int j) const {
+    KOKKOS_INLINE_FUNCTION void operator()(int i, int j, int k) const {
         double sum = 0.0;
-        int ii, jj;
+        int ii, jj, kk;
         for (ii = -1; ii <= 1; ii++) {
             for (jj = -1; jj <= 1; jj++) {
-                if ((ii == 0) && (jj == 0)) continue;
-                sum += _src_array(i + ii,j + jj, 0);
+                for (kk = -1; kk <= 1; kk++) {
+		    if ((ii == jj) && (jj == kk)) continue;
+                    sum += _src_array(i + ii, j + jj, k + kk, 0);
+                }
             }
         }
-        if (_src_array(i, j, 0) == 0.0) {
-            if ((sum > 2.99) && (sum < 3.01))
-                _dst_array(i, j, 0) = 1.0;
-            else 
-                _dst_array(i, j, 0) = 0.0;
-        } else {
-            if ((sum >= 1.99) && (sum <= 3.01))
-                _dst_array(i, j, 0) = 1.0;
-            else 
-                _dst_array(i, j, 0) = 0.0;
-        }
+        _dst_array(i, j, k, 0) = sum / 26.0;
     };
-    GOL2DFunctor() {}
+    JacobiFunctor() {}
 };
 
 int main( int argc, char* argv[] )
@@ -245,29 +243,31 @@ int main( int argc, char* argv[] )
     if ( rank == 0 )
     {
         // Print Command Line Options
-        std::cout << "Cabana Game of Life\n";
+        std::cout << "Cabana Jacobi Iteration\n";
         std::cout << "=======Command line arguments=======\n";
+        std::cout << std::left << std::setw( 20 ) << "Thread Setting"
+                  << ": " << std::setw( 8 ) << cl.device
+                  << "\n"; // Threading Setting
         std::cout << std::left << std::setw( 20 ) << "Cells"
                   << ": " << std::setw( 8 ) << cl.global_num_cells[0]
                   << std::setw( 8 ) << cl.global_num_cells[1]
                   << "\n"; // Number of Cells
-        std::cout << std::left << std::setw( 20 ) << "Total Simulation Time"
-                  << ": " << std::setw( 8 ) << cl.t_final << "\n";
+        std::cout << std::left << std::setw( 20 ) << "Max Iterations"
+                  << ": " << std::setw( 8 ) << cl.max_iterations << "\n";
         std::cout << std::left << std::setw( 20 ) << "Write Frequency"
                   << ": " << std::setw( 8 ) << cl.write_freq
                   << "\n"; // Steps between write
         std::cout << "====================================\n";
     }
 
-    // Call advection solver - put in a seperate scope so contained view object
-    // leaves scope before we shutdown.
     {
-	using namespace CabanaGhost;
+        using namespace CabanaGhost;
+        // Call advection solver
         MeshInitFunc initializer;
-        GOL2DFunctor gol2Dfunctor;
-        Solver<2, GOL2DFunctor, Approach::Flat, Approach::Host> 
-            solver( cl.global_num_cells, gol2Dfunctor, initializer );
-        solver.solve(cl.t_final, cl.write_freq); 
+        JacobiFunctor iteration_functor;
+        Solver<3, JacobiFunctor, Approach::Flat, Approach::Host> 
+            solver(cl.global_num_cells, iteration_functor, initializer );
+        solver.solve(cl.tolerance, cl.max_iterations, cl.write_freq);
     }
 
     // Shut things down

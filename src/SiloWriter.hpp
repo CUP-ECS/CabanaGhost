@@ -30,15 +30,15 @@ namespace CabanaGhost
  * @class SiloWriter
  * @brief SiloWriter class to write results to Silo file using PMPIO
  **/
-template <unsigned long Dims, class ExecutionSpace, class MemorySpace, class ViewLayout>
+template <unsigned long Dims>
 class SiloWriter
 {
   public:
-    using mem_type = MemorySpace;
+    using mem_type = typename Kokkos::DefaultExecutionSpace::memory_space;
     using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using pm_type = ProblemManager<Dims, ExecutionSpace, MemorySpace, ViewLayout>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
+    using pm_type = ProblemManager<Dims>;
+    using device_type = typename Kokkos::DefaultExecutionSpace::device_type;
     /**
      * Constructor
      * Create new SiloWriter
@@ -130,28 +130,52 @@ class SiloWriter
         // portion of the mesh, potentially copying them out of device space
         // and making sure not to write ghost values.
 
-        // Advected quantity first - copy owned portion from the primary
-        // execution space to the host execution space
         Kokkos::Profiling::pushRegion( "SiloWriter::WriteFile::WriteLiveness" );
         auto q =
             _pm.get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() ).view();
         auto xmin = cell_domain.min( 0 );
         auto ymin = cell_domain.min( 1 );
+        auto zmin = Dims == 3 ? cell_domain.min( 2 ) : 0;
 
         // Silo is expecting row-major data so we make this a LayoutRight
         // array that we copy data into and then get a mirror view of.
         // XXX WHY DOES THIS ONLY WORK LAYOUTLEFT?
-        Kokkos::View<typename pm_type::cell_array_type::value_type***,
-                     Kokkos::LayoutLeft,
+        using value_type = typename pm_type::cell_array_type::value_type;
+        using view_type = std::conditional_t<
+            3 == Dims, value_type****, std::conditional_t<2 == Dims, value_type***, void>>;
+
+        Kokkos::View<view_type, Kokkos::LayoutLeft,
                      typename pm_type::cell_array_type::device_type>
             qOwned( "qowned", cell_domain.extent( 0 ), cell_domain.extent( 1 ),
-                    1 );
-        Kokkos::parallel_for(
-            "SiloWriter::qowned copy",
-            createExecutionPolicy( cell_domain, ExecutionSpace() ),
-            KOKKOS_LAMBDA( const int i, const int j ) {
-                qOwned( i - xmin, j - ymin, 0 ) = q( i, j, 0 );
-            } );
+                    Dims == 3 ? cell_domain.extent( 2 ) : 1, 
+                    Dims == 3 ? 1 : 0 );
+
+        struct {
+            typename pm_type::cell_array_type::view_type orig;
+            Kokkos::View<view_type, Kokkos::LayoutLeft,
+                     typename pm_type::cell_array_type::device_type> owned;
+            int xmin, ymin, zmin;
+            KOKKOS_INLINE_FUNCTION
+            void operator()(const int i, const int j, const int k) const
+                requires (Dims == 3)
+            {
+                owned( i - xmin, j - ymin, k - zmin, 0 ) = orig( i, j, k, 0 );
+            }
+            void operator()(const int i, const int j) const 
+                requires (Dims == 2)
+            {
+                owned( i - xmin, j - ymin, 0 ) = orig( i, j, 0 );
+            }
+        } copy_functor;
+
+        copy_functor.orig = q; copy_functor.owned = qOwned;
+        copy_functor.xmin = cell_domain.min(0); 
+        copy_functor.ymin = cell_domain.min(1);
+        copy_functor.zmin = Dims == 3 ? cell_domain.min(2) : 0;
+
+        Kokkos::parallel_for( "SiloWriter::qowned copy",
+            createExecutionPolicy( cell_domain, Kokkos::DefaultExecutionSpace() ),
+            copy_functor);
         auto qHost =
             Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), qOwned );
 

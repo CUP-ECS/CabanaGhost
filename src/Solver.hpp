@@ -26,12 +26,6 @@
 
 namespace CabanaGhost
 {
-class SolverBase
-{
-  public:
-    virtual ~SolverBase() = default;
-    virtual void solve( const double t_final, const int write_freq ) = 0;
-};
 
 //---------------------------------------------------------------------------//
 namespace Approach {
@@ -43,20 +37,19 @@ namespace Approach {
 
 //---------------------------------------------------------------------------//
 
-template <class ExecutionSpace, class MemorySpace, class ViewLayout, int Dims, 
-          class CompApproach, class CommApproach>
-class Solver : public SolverBase
+template <unsigned long Dims, class IterationFunctor, class CompApproach, class CommApproach>
+class Solver 
 {
   public:
     using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
-    using pm_type = ProblemManager<Dims, ExecutionSpace, MemorySpace, ViewLayout>;
+    using pm_type = ProblemManager<Dims>;
     using array_type = typename pm_type::cell_array_type;
     using view_type = typename array_type::view_type;
 
     template <class InitFunc>
     Solver( const std::array<int, Dims> & global_num_cells, 
-            const InitFunc& create_functor ) 
-        : _time( 0.0 )
+            IterationFunctor& iteration_functor, const InitFunc& create_functor ) 
+        : _time( 0 ), _iter_func(iteration_functor)
     {
         // Create a local grid describing our data layout
         // Create global mesh bounds.
@@ -82,10 +75,10 @@ class Solver : public SolverBase
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, 1 );
 
         // Create a problem manager to manage mesh state
-        _pm = std::make_unique<ProblemManager<Dims, ExecutionSpace, MemorySpace, ViewLayout>>( _local_grid, create_functor );
+        _pm = std::make_unique<ProblemManager<Dims>>( _local_grid, create_functor );
 
         // Set up Silo for I/O
-        _silo = std::make_unique<SiloWriter<Dims, ExecutionSpace, MemorySpace, ViewLayout>>( *_pm );
+        _silo = std::make_unique<SiloWriter<Dims>>( *_pm );
     }
 
     void setup()
@@ -94,77 +87,12 @@ class Solver : public SolverBase
         _pm->gather( Version::Current() );
     }
 
-    // XXX Generalize this by passing in the functor and the 
-    // dimension ofhte functor to make this a general halo
-    // exchange benchmark
-    struct gol2DFunctor {
-        view_type _src_array, _dst_array;
-
-        KOKKOS_INLINE_FUNCTION void operator()(int i, int j) const {
-            double sum = 0.0;
-            int ii, jj;
-            for (ii = -1; ii <= 1; ii++) {
-                for (jj = -1; jj <= 1; jj++) {
-                    if ((ii == 0) && (jj == 0)) continue;
-                    sum += _src_array(i + ii,j + jj, 0);
-                }
-            }
-            if (_src_array(i, j, 0) == 0.0) {
-                if ((sum > 2.99) && (sum < 3.01))
-                    _dst_array(i, j, 0) = 1.0;
-                else 
-                    _dst_array(i, j, 0) = 0.0;
-            } else {
-                if ((sum >= 1.99) && (sum <= 3.01))
-                    _dst_array(i, j, 0) = 1.0;
-                else 
-                    _dst_array(i, j, 0) = 0.0;
-            }
-        };
-        gol2DFunctor(view_type s, view_type d)
-            : _src_array(s), _dst_array(d)
-        {}
-    };
 
     /* Now the various versions of code to actually compute/communicate 
      * a timestep. These are conditional on the computataional approach being
      * used. */
-    template <class Comp, class Comm>
-        requires (std::same_as<Approach::Flat, Comp> 
-                  && std::same_as<Approach::Host, Comm>)
-    void step() 
-    {
-        // 1. Get the data we need and then construct a functor to handle
-        // parallel computation on that 
-        auto local_grid = _pm->localGrid();
-        auto src_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
-                                  Version::Current() ).view();
-        auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
-                                  Version::Next() ).view();
-        struct gol2DFunctor gol(src_view, dst_view);
-
-        // 2. Figure ouyt the portion of that data that we own and need to 
-        // compute. Note the assumption that the Ghost data is already up
-        // to date here.
-        auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
-
-        // 3. Iterate over the space of indexes we own and apply the 
-        // functor in parallel to that space to calculate the 
-        // output data
-        Cabana::Grid::grid_parallel_for("Game of Life Mesh Parallel Loop", 
-            ExecutionSpace(), own_cells, gol);
-
-        // 4. Make sure the parallel for loop is done before use its results
-        Kokkos::fence();
- 
-        // 5. Gather our ghost cells for the next time around from our
-        // our neighbor's owned cells.
-        _pm->gather( Version::Next() );
-
-        /* 6. Make the state we next state the current state and advance time*/
-        _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
-        _time++;
-    }
+    void step() requires (std::same_as<Approach::Flat, CompApproach> 
+                          && std::same_as<Approach::Host, CommApproach>);
 
     template <std::size_t Blocks, class Comp, class Comm>
         requires std::same_as<Approach::Hierarchical<Blocks>, Comp>
@@ -195,8 +123,8 @@ class Solver : public SolverBase
         int istart = own_cells.min(0), jstart = own_cells.min(1);
         int iend = own_cells.max(0), jend = own_cells.max(1);
 
-        typedef typename Kokkos::TeamPolicy<ExecutionSpace>::member_type member_type;
-        Kokkos::TeamPolicy<ExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
+        typedef typename Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>::member_type member_type;
+        Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
         Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
             KOKKOS_LAMBDA(member_type team_member) 
         {
@@ -277,11 +205,11 @@ class Solver : public SolverBase
         int iend = own_cells.max(0), jend = own_cells.max(1);
 
         // 4. Start the halo exchange process
-	halo.gatherStart(ExecutionSpace(), dst_array);
+	halo.gatherStart(Kokkos::DefaultExecutionSpace(), dst_array);
 
         // 5. Define the thread team policy which will compute elements 
-        typedef typename Kokkos::TeamPolicy<ExecutionSpace>::member_type member_type;
-        Kokkos::TeamPolicy<ExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
+        typedef typename Kokkos::TeamPolicy<DefaultExecutionSpace>::member_type member_type;
+        Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
  
         // 6. Launch the thread teams, one per block
         Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
@@ -316,14 +244,14 @@ class Solver : public SolverBase
             //   1. Use the thread team to pack any buffers that need to be sent
             //   2. use team_member.barrier() to synchronize before having one 
             //      team member call pready to send any data needed.
-	    halo.gatherReady(ExecutionSpace(), team_member, {itile, jtile}, dst_array);
+	    halo.gatherReady(Kokkos::DefaultExecutionSpace(), team_member, {itile, jtile}, dst_array);
         });
 
         // 7. Make sure the parallel for loop is done before use its results
         Kokkos::fence();
       
         /* 8. Finish the halo for the next time step */ 
-        halo.gatherFinish( ExecutionSpace(), dst_array );
+        halo.gatherFinish( Kokkos::DefaultExecutionSpace(), dst_array );
 
         /* Switch the source and destination arrays and advance time*/
         _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
@@ -331,10 +259,21 @@ class Solver : public SolverBase
     }
 #endif // if 0 for kernel triggering
 
-    void solve( const double t_final, const int write_freq ) override
+    bool checkConvergence( const double tol )
+        requires (std::same_as<Approach::Flat, CompApproach> 
+                  && std::same_as<Approach::Host, CommApproach>)
+    {
+        // Compute difference between previous and currenet time step
+        // grid_parallel_reduce();
+        // do a global allreduce of that.
+        return false;
+    } 
+
+    void solve( const int t_max, const double tol = 0.0, const int write_freq = 0)
     {
         int t = 0;
         int rank;
+        bool converged = false;
 
         MPI_Comm_rank(_local_grid->globalGrid().comm(), &rank);
 
@@ -349,16 +288,20 @@ class Solver : public SolverBase
         do
         {
             if ( 0 == rank )
-                printf( "Step %d / %d\n", t, (int)t_final );
+                printf( "Step %d / %d\n", t, (int)t_max );
 
-            step<CompApproach, CommApproach>();
+            step();
             t++;
             // Output mesh state periodically
             if ( write_freq && (0 == t % write_freq ))
             {
                 _silo->siloWrite( strdup( "Mesh" ), t, _time, 1 );
             }
-        } while ( ( _time < t_final ) );
+ 
+            if (tol > 0) {
+                converged = checkConvergence(tol);
+            }
+        } while ( !converged && ( _time < t_max ) );
     }
 
   private:
@@ -366,77 +309,54 @@ class Solver : public SolverBase
     int _time;
     
     std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
-
-    std::unique_ptr<ProblemManager<Dims, ExecutionSpace, MemorySpace, ViewLayout>> _pm;
-    std::unique_ptr<SiloWriter<Dims, ExecutionSpace, MemorySpace, ViewLayout>> _silo;
+    IterationFunctor& _iter_func; // XXX Actually define this class some time
+    std::unique_ptr<ProblemManager<Dims>> _pm;
+    std::unique_ptr<SiloWriter<Dims>> _silo;
 };
 
-//---------------------------------------------------------------------------//
-// Creation method.
-template <unsigned long Dims, class InitFunc>
-std::unique_ptr<SolverBase>
-createSolver( const std::string& device,
-              const std::array<int, Dims>& global_num_cell,
-              const InitFunc& create_functor )
+template <unsigned long Dims, class IterationFunctor,
+          class CompApproach, class CommApproach>
+void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
+    requires (std::same_as<Approach::Flat, CompApproach> 
+              && std::same_as<Approach::Host, CommApproach>) 
 {
-    if ( 0 == device.compare( "serial" ) )
-    {
-#if defined( KOKKOS_ENABLE_SERIAL )
-        return std::make_unique<
-            Solver<Kokkos::Serial, Kokkos::HostSpace, Kokkos::LayoutRight, Dims, 
-                   Approach::Flat, Approach::Host>>(global_num_cell, create_functor);
-#else
-        throw std::runtime_error( "Serial Backend Not Enabled" );
-#endif
-    }
-    else if ( 0 == device.compare( "threads" ) )
-    {
-#if defined( KOKKOS_ENABLE_THREADS )
-        return std::make_unique<
-            Solver<Kokkos::Threads, Kokkos::HostSpace, Kokkos::LayoutRight, Dims,
-                   Approach::Flat, Approach:Host>>( global_num_cell, create_functor );
-#else
-        throw std::runtime_error( "Threads Backend Not Enabled" );
-#endif
-    }
-    else if ( 0 == device.compare( "openmp" ) )
-    {
-#if defined( KOKKOS_ENABLE_OPENMP )
-        return std::make_unique
-            Solver<Kokkos::OpenMP, Kokkos::HostSpace, Dims>>(global_num_cell, create_functor);
-#else
-        throw std::runtime_error( "OpenMP Backend Not Enabled" );
-#endif
-    }
-    else if ( 0 == device.compare( "cuda" ) )
-    {
-#if defined(KOKKOS_ENABLE_CUDA)
-        return std::make_unique<
-            Solver<Kokkos::Cuda, Kokkos::CudaSpace, Kokkos::LayoutLeft, Dims, 
-                   Approach::Flat, Approach:Host>>(global_num_cell, create_functor);
-#else
-        throw std::runtime_error( "CUDA Backend Not Enabled" );
-#endif
-    }
-    else if ( 0 == device.compare( "hip" ) )
-    {
-#ifdef KOKKOS_ENABLE_HIP
-        return std::make_unique<Solver<Kokkos::Experimental::HIP, 
-            Kokkos::Experimental::HIPSpace, Dims>>(global_bounding_box, create_functor);
-#else
-        throw std::runtime_error( "HIP Backend Not Enabled" );
-#endif
-    }
-    else
-    {
-        throw std::runtime_error( "invalid backend" );
-        return nullptr;
-    }
+    // 1. Get the data we need and then construct a functor to handle
+    // parallel computation on that 
+    auto local_grid = _pm->localGrid();
+    auto src_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
+                              Version::Current() ).view();
+    auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
+                              Version::Next() ).view();
+
+    // XXX Change this to a swap
+    _iter_func.setViews(src_view, dst_view);
+
+    // 2. Figure ouyt the portion of that data that we own and need to 
+    // compute. Note the assumption that the Ghost data is already up
+    // to date here.
+    auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
+
+    // 3. Iterate over the space of indexes we own and apply the 
+    // functor in parallel to that space to calculate the 
+    // output data
+    Cabana::Grid::grid_parallel_for("Game of Life Mesh Parallel Loop", 
+        Kokkos::DefaultExecutionSpace(), own_cells, _iter_func);
+
+    // 4. Make sure the parallel for loop is done before use its results
+    Kokkos::fence();
+
+    // 5. Gather our ghost cells for the next time around from our
+    // our neighbor's owned cells.
+    _pm->gather( Version::Next() );
+
+    /* 6. Make the state we next state the current state and advance time*/
+    _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
+    _time++;
 }
 
 //---------------------------------------------------------------------------//
 
-} // end namespace Beatnik
+} // end namespace CabanaGhost
 
 #endif // end CABANAGHOST_SOLVER_HPP
 

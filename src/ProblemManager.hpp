@@ -79,20 +79,15 @@ struct Liveness
  * @brief ProblemManager class to store the mesh and state values, and
  * to perform gathers and scatters in the approprate number of dimensions.
  **/
-template <unsigned long Dims, class ExecutionSpace, class MemorySpace, class ViewLayout>
+template <unsigned long Dims>
 class ProblemManager
 {
   public:
-    using memory_space = MemorySpace;
-    using execution_space = ExecutionSpace;
-
     using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
-    using kokkos_layout = ViewLayout;
-    using cell_array_type = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type, 
-                                kokkos_layout, memory_space>;
+    using cell_array_type = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type>;
     using view_type = typename cell_array_type::view_type;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using halo_type = Cabana::Grid::Halo<memory_space>;
+    using halo_type = Cabana::Grid::Halo<typename Kokkos::DefaultExecutionSpace::memory_space>;
 
     template <class InitFunc>
     ProblemManager( const std::shared_ptr<grid_type>& local_grid,
@@ -106,9 +101,9 @@ class ProblemManager
             Cabana::Grid::createArrayLayout( _local_grid, 1, Cabana::Grid::Cell() );
 
         // The actual arrays storing mesh quantities
-        _liveness_curr = Cabana::Grid::createArray<double, kokkos_layout, memory_space>(
+        _liveness_curr = Cabana::Grid::createArray<double>(
             "liveness", cell_scalar_layout );
-        _liveness_next = Cabana::Grid::createArray<double, kokkos_layout, memory_space>(
+        _liveness_next = Cabana::Grid::createArray<double>(
             "liveness", cell_scalar_layout );
         //Cabana::Grid::ArrayOp::assign( *_liveness_curr, 0.0, Cabana::Grid::Ghost() );
         //Cabana::Grid::ArrayOp::assign( *_liveness_next, 0.0, Cabana::Grid::Ghost() );
@@ -164,7 +159,7 @@ class ProblemManager
         ViewFunctor<view_type, InitFunctor> vf(v, create_functor);
 
         Cabana::Grid::grid_parallel_for( "Initialize Cells", 
-            ExecutionSpace(), own_cells, vf );
+            Kokkos::DefaultExecutionSpace(), own_cells, vf );
     };
 
     /**
@@ -218,11 +213,11 @@ class ProblemManager
      **/
     void gather( Version::Current ) const
     {
-        _halo->gather( ExecutionSpace(), *_liveness_curr );
+        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_curr );
     };
     void gather( Version::Next ) const
     {
-        _halo->gather( ExecutionSpace(), *_liveness_next );
+        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_next );
     };
 
     /**

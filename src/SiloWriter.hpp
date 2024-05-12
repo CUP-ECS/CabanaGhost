@@ -50,6 +50,39 @@ class SiloWriter
     {
     };
 
+    /* Helper types and functions for converting multiple dimensions of grids */
+    using value_type = typename pm_type::cell_array_type::value_type;
+    using view_data_type = std::conditional_t<
+        3 == Dims, value_type****, std::conditional_t<2 == Dims, value_type***, void>>;
+    using owned_view_type = Kokkos::View<view_data_type, Kokkos::LayoutLeft, 
+        typename pm_type::cell_array_type::device_type>;
+    owned_view_type allocateOwnedArray(Cabana::Grid::IndexSpace<Dims> d)
+        requires (Dims == 3)
+    {
+        return owned_view_type("qOwned", d.extent( 0 ), d.extent( 1 ), d.extent( 2 ), 1);
+    }
+    owned_view_type allocateOwnedArray(Cabana::Grid::IndexSpace<Dims> d)
+        requires (Dims == 2)
+    {
+        return owned_view_type("qOwned", d.extent( 0 ), d.extent( 1 ), 1);
+    }
+
+    struct CopyFunctor {
+        typename pm_type::cell_array_type::view_type orig;
+        owned_view_type owned; 
+        int xmin, ymin, zmin;
+        KOKKOS_INLINE_FUNCTION
+        void operator()(const int i, const int j, const int k) const
+            requires (Dims == 3)
+        {
+                owned( i - xmin, j - ymin, k - zmin, 0 ) = orig( i, j, k, 0 );
+        }
+        void operator()(const int i, const int j) const 
+            requires (Dims == 2)
+        {
+            owned( i - xmin, j - ymin, 0 ) = orig( i, j, 0 );
+        }
+    };
     /**
      * Write File
      * @param dbile File handler to dbfile
@@ -140,34 +173,9 @@ class SiloWriter
         // Silo is expecting row-major data so we make this a LayoutRight
         // array that we copy data into and then get a mirror view of.
         // XXX WHY DOES THIS ONLY WORK LAYOUTLEFT?
-        using value_type = typename pm_type::cell_array_type::value_type;
-        using view_type = std::conditional_t<
-            3 == Dims, value_type****, std::conditional_t<2 == Dims, value_type***, void>>;
+        owned_view_type qOwned = allocateOwnedArray(cell_domain);
 
-        Kokkos::View<view_type, Kokkos::LayoutLeft,
-                     typename pm_type::cell_array_type::device_type>
-            qOwned( "qowned", cell_domain.extent( 0 ), cell_domain.extent( 1 ),
-                    Dims == 3 ? cell_domain.extent( 2 ) : 1, 
-                    Dims == 3 ? 1 : 0 );
-
-        struct {
-            typename pm_type::cell_array_type::view_type orig;
-            Kokkos::View<view_type, Kokkos::LayoutLeft,
-                     typename pm_type::cell_array_type::device_type> owned;
-            int xmin, ymin, zmin;
-            KOKKOS_INLINE_FUNCTION
-            void operator()(const int i, const int j, const int k) const
-                requires (Dims == 3)
-            {
-                owned( i - xmin, j - ymin, k - zmin, 0 ) = orig( i, j, k, 0 );
-            }
-            void operator()(const int i, const int j) const 
-                requires (Dims == 2)
-            {
-                owned( i - xmin, j - ymin, 0 ) = orig( i, j, 0 );
-            }
-        } copy_functor;
-
+        CopyFunctor copy_functor;
         copy_functor.orig = q; copy_functor.owned = qOwned;
         copy_functor.xmin = cell_domain.min(0); 
         copy_functor.ymin = cell_domain.min(1);

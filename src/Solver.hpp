@@ -275,7 +275,6 @@ class Solver
  
             if (tol > 0.0) {
                 converged = checkConvergence(tol);
-		std::cout << "Convergence (" << _time << "): " << converged << "\n";
             }
         } while ( !converged && ( _time < t_max ) );
     }

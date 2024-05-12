@@ -268,7 +268,7 @@ int main( int argc, char* argv[] )
         GOL2DFunctor gol2Dfunctor;
         Solver<2, GOL2DFunctor, Approach::Flat, Approach::Host> 
             solver( cl.global_num_cells, true, gol2Dfunctor, initializer );
-        solver.solve(cl.t_final, cl.write_freq); 
+        solver.solve(cl.t_final, 0.0, cl.write_freq); 
     }
 
     // Shut things down

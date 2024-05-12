@@ -38,16 +38,15 @@ using namespace Cabana::Grid;
 // Short Args: n - Cell Count
 // x - On-node Parallelism ( Serial/Threaded/OpenMP/CUDA ),
 // t - Time Steps, F - Write Frequency
-static char* shortargs = (char*)"n:t:x:F:h";
+static char* shortargs = (char*)"n:m:t:F:h";
 
 static option longargs[] = {
     // Basic simulation parameters
-    { "ncells", required_argument, NULL, 'n' },
+    { "num-cells", required_argument, NULL, 'n' },
     { "max-iterations", required_argument, NULL, 'm' },
     { "tolerance", required_argument, NULL, 't' },
     { "write-freq", required_argument, NULL, 'F' },
-    { "driver", required_argument, NULL, 'x' },
-    { "help", no_argument, NULL, 'j' },
+    { "help", no_argument, NULL, 'h' },
     { 0, 0, 0, 0 } };
 
 /**
@@ -197,9 +196,13 @@ struct MeshInitFunc
     {
         int d;
 
-        
+        //std::cout << "Initializing index "
+        //          << "(" << index[0] << ", " << index[1] << ", " << index[2] << ")"
+        //          << " with coordinate " 
+        //          << "(" << coords[0] << ", " << coords[1] << ", " << coords[2] << ")"
+        //          << "\n";
         for (d = 0; d < 3; d++)
-            if (coords[d] < 1.0) return 100.0;
+            if (coords[d] < 0.0) return 100.0;
 
         return 0.0;
     };

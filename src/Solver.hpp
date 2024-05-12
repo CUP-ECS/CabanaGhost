@@ -94,75 +94,10 @@ class Solver
     void step() requires (std::same_as<Approach::Flat, CompApproach> 
                           && std::same_as<Approach::Host, CommApproach>);
 
-    template <std::size_t Blocks, class Comp, class Comm>
-        requires std::same_as<Approach::Hierarchical<Blocks>, Comp>
-                 && std::same_as<Approach::Host, Comm>
-    void step()
-    {
-        // 1. Get the data we need and then construct a functor to handle
-        // parallel computation on that 
-        auto local_grid = _pm->localGrid();
-        auto src_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() ).view();
-        auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() ).view();
-        struct golFunctor gol(src_view, dst_view);
+    template <std::size_t Blocks>
+    void step() requires (std::same_as<Approach::Hierarchical<Blocks>, CompApproach>
+                 && std::same_as<Approach::Host, CommApproach>);
 
-        // 2. Figure out the portion of that data that we own and need to 
-        // compute. Note the assumption that the Ghost data is already up
-        // to date here.
-        auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
-
-        // We use hierarchical parallelism here to enable partitioned communication along the boundary
-        // as blocks of tjhe mesh are computed. There is likely some computational cost to this.
-        
-        // 1. Determine the number of teams in the league (the league size), based on the block size 
-        // we want to communicate in each dimension. Start assuming square blocks.
-        int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
-        int blocks_per_dim = 2;
-        int block_size = (iextent + blocks_per_dim - 1)/blocks_per_dim;
-        int league_size = blocks_per_dim * blocks_per_dim;
-        int istart = own_cells.min(0), jstart = own_cells.min(1);
-        int iend = own_cells.max(0), jend = own_cells.max(1);
-
-        typedef typename Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>::member_type member_type;
-        Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
-        Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
-            KOKKOS_LAMBDA(member_type team_member) 
-        {
-            // Figure out the i/j pieces of the block this team member is responsible for
-            int league_rank = team_member.league_rank();
-            int itile = league_rank / blocks_per_dim,
-                jtile = league_rank % blocks_per_dim;
-            int ibase = istart + itile * block_size,
-                jbase = jstart + jtile * block_size;
-            int ilimit = std::min(ibase + block_size, iend),
-                jlimit = std::min(jbase + block_size, jend);
-            int iextent = ilimit - ibase,
-                jextent = jlimit - jbase;
-
-            // 2. Now the team of threads iterates over the block it is responsible for. Each thread
-            // in the team may handle multiple indexes, depending on the size of the team.
-            auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
-            Kokkos::parallel_for(block, [&](int i, int j)
-            {
-                gol(ibase + i, jbase + j);
-            });
-
-            // 3. Finally, any team-specific operations that need the block to be completed
-            // can be done by using a team_barrier, for example block-specific communication. 
-            // None is needed here since all communication is host-driven.
-            // team_member.team_barrier();
-        });
-
-        // Make sure the parallel for loop is done before use its results
-        Kokkos::fence();
-          
-        /* Halo the computed values for the next time step */
-        _pm->gather( Version::Next() );
-
-        /* Switch the source and destination arrays and advance time*/
-        _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
-        _time++;
-    }
 
 #if 0
     // Sketch of a hierarchical communication approach with kernel triggering, 
@@ -180,7 +115,6 @@ class Solver
         auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
                                    Version::Next() );
         auto src_view = src_array.view(), dst_view = dst_array.view();
-        struct golFunctor gol(src_view, dst_view);
         auto halo = _pm->halo( );
 
         // 2. Figure out the portion of that data that we own and need to 
@@ -236,7 +170,7 @@ class Solver
 	    auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
 	    Kokkos::parallel_for(block, [&](int i, int j)
 	    {
-	        gol(ibase + i, jbase + j);
+	        _iter_func(ibase + i, jbase + j);
 	    });
 
 	    // 6c. Finally, the team is done with its block and can work on any
@@ -259,14 +193,55 @@ class Solver
     }
 #endif // if 0 for kernel triggering
 
+    struct MaxDifferenceFunctor
+    {
+        view_type _v1, _v2;
+
+        KOKKOS_INLINE_FUNCTION void
+        operator() (const int i, const int j, const int k, double& max) const
+            requires (Dims == 3)
+        {
+            double diff = _v2(i, j, k, 0) - _v1(i, j, k, 0);
+            diff = diff < 0.0 ? -diff : diff;
+            if (diff > max) max = diff;
+        }
+
+        KOKKOS_INLINE_FUNCTION void
+        operator() (const int i, const int j, double& max) const
+            requires (Dims == 2)
+        {
+            double diff = _v2(i, j, 0) - _v1(i, j, 0);
+            diff = diff < 0.0 ? -diff : diff;
+            if (diff > max) max = diff;
+        }
+
+        MaxDifferenceFunctor(view_type v1, view_type v2)
+            : _v1(v1), _v2(v2)
+        {}
+    };
+
     bool checkConvergence( const double tol )
         requires (std::same_as<Approach::Flat, CompApproach> 
                   && std::same_as<Approach::Host, CommApproach>)
     {
-        // XXX Compute difference between previous and current time step
-        // grid_parallel_reduce();
-        // do a global allreduce of that.
-        return false;
+        auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
+
+        auto src_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
+                                  Version::Current() ).view();
+        auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
+                                  Version::Next() ).view();
+        // 3. Iterate over the space of indexes we own and apply the 
+        // functor in parallel to that space to calculate the 
+        // output data
+        MaxDifferenceFunctor mdf(src_view, dst_view);
+        double max = 0;
+        Cabana::Grid::grid_parallel_reduce("CabanaGhost Convergence Reduction",
+            Kokkos::DefaultExecutionSpace(), own_cells, mdf, max);
+
+
+        MPI_Allreduce(MPI_IN_PLACE, &max, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+        return max < tol;
     } 
 
     void solve( const int t_max, const double tol = 0.0, const int write_freq = 0)
@@ -355,6 +330,76 @@ void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
     _time++;
 }
 
+template <unsigned long Dims, class IterationFunctor,
+          class CompApproach, class CommApproach>
+template <std::size_t Blocks>
+void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
+  requires (std::same_as<Approach::Hierarchical<Blocks>, CompApproach>
+                 && std::same_as<Approach::Host, CommApproach>)
+{
+    // 1. Get the data we need and then construct a functor to handle
+    // parallel computation on that 
+    auto local_grid = _pm->localGrid();
+    auto src_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() ).view();
+    auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() ).view();
+
+    // 2. Figure out the portion of that data that we own and need to 
+    // compute. Note the assumption that the Ghost data is already up
+    // to date here.
+    auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
+
+    // We use hierarchical parallelism here to enable partitioned communication along the boundary
+    // as blocks of tjhe mesh are computed. There is likely some computational cost to this.
+    
+    // 1. Determine the number of teams in the league (the league size), based on the block size 
+    // we want to communicate in each dimension. Start assuming square blocks.
+    int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
+    int blocks_per_dim = 2;
+    int block_size = (iextent + blocks_per_dim - 1)/blocks_per_dim;
+    int league_size = blocks_per_dim * blocks_per_dim;
+    int istart = own_cells.min(0), jstart = own_cells.min(1);
+    int iend = own_cells.max(0), jend = own_cells.max(1);
+
+    typedef typename Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>::member_type member_type;
+    Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
+    Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
+        KOKKOS_LAMBDA(member_type team_member) 
+    {
+        // Figure out the i/j pieces of the block this team member is responsible for
+        int league_rank = team_member.league_rank();
+        int itile = league_rank / blocks_per_dim,
+            jtile = league_rank % blocks_per_dim;
+        int ibase = istart + itile * block_size,
+            jbase = jstart + jtile * block_size;
+        int ilimit = std::min(ibase + block_size, iend),
+            jlimit = std::min(jbase + block_size, jend);
+        int iextent = ilimit - ibase,
+            jextent = jlimit - jbase;
+
+        // 2. Now the team of threads iterates over the block it is responsible for. Each thread
+        // in the team may handle multiple indexes, depending on the size of the team.
+        auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
+        Kokkos::parallel_for(block, [&](int i, int j)
+        {
+            _iter_func(ibase + i, jbase + j);
+        });
+
+        // 3. Finally, any team-specific operations that need the block to be completed
+        // can be done by using a team_barrier, for example block-specific communication. 
+        // None is needed here since all communication is host-driven.
+        // team_member.team_barrier();
+    });
+
+    // Make sure the parallel for loop is done before use its results
+    Kokkos::fence();
+      
+    /* Halo the computed values for the next time step */
+    _pm->gather( Version::Next() );
+
+    /* Switch the source and destination arrays and advance time*/
+    _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
+    _time++;
+}
 //---------------------------------------------------------------------------//
 
 } // end namespace CabanaGhost

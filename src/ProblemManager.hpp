@@ -152,23 +152,30 @@ class ProblemManager
     };
 
     /**
-     * Initializes state values in the cells
+     * Initializes state values in the cells by calling functor with local index and 
+     * global coordinate
      * @param create_functor Initialization function
      **/
     template <class InitFunctor>
-    void initialize( const InitFunctor& create_functor )
+    void initializeOwned( cell_array_type a, const InitFunctor& create_functor )
     {
-        // Get mesh information
         local_mesh_type local_mesh(*_local_grid);
-
-        // Get State Arrays
-        cell_array_type a = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
         view_type v = a.view();
+        ViewFunctor<view_type, InitFunctor, local_mesh_type> vf(v, create_functor, local_mesh);
 
         // Loop Over and initialize all owned cells ( i, j )
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(),
                                                   Cabana::Grid::Local() );
 
+        Cabana::Grid::grid_parallel_for( "Initialize Boundaries", 
+            Kokkos::DefaultExecutionSpace(), own_cells, vf );
+    }
+
+    template <class InitFunctor>
+    void initializeBoundary( cell_array_type a,  const InitFunctor& create_functor )
+    {
+        local_mesh_type local_mesh(*_local_grid);
+        view_type v = a.view();
         ViewFunctor<view_type, InitFunctor, local_mesh_type> vf(v, create_functor, local_mesh);
 
         // We also initialize any boundary (non-periodic) ghost cells.
@@ -176,15 +183,35 @@ class ProblemManager
             for (int j = -1; j <= 1; j++) {
                 for (int k = -1; k <= 1; k++) {
                     std::array<int, Dims> dir;
-		    dir[0] = i; dir[1] = j; if (Dims == 3) dir[2] = k;
+                    dir[0] = i; dir[1] = j; 
+                    if (Dims == 3) {
+                        if (i == j && j == k && k == 0) continue;
+                        dir[2] = k; // Set the k direction if there is one
+                    } else {
+                        if (i == j && i == 0) continue; // skip no direction case
+                        if (k != 0) continue; // skip redundant k cases
+                    }
                     auto boundary_cells = 
                         _local_grid->boundaryIndexSpace( Cabana::Grid::Ghost(), 
-						         Cabana::Grid::Cell(), dir);
+                                                         Cabana::Grid::Cell(), dir);
                     Cabana::Grid::grid_parallel_for( "Initialize Boundaries", 
                         Kokkos::DefaultExecutionSpace(), boundary_cells, vf );
                  }
             }
         }
+    }
+
+    template <class InitFunctor>
+    void initialize( const InitFunctor& create_functor )
+    {
+
+        // Get State Arrays
+        cell_array_type curr = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
+        cell_array_type next = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() );
+
+	initializeOwned(curr, create_functor);
+        initializeBoundary(curr, create_functor);
+        initializeBoundary(next, create_functor);
     };
 
     /**

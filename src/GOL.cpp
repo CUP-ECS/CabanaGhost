@@ -3,7 +3,8 @@
  * @author Patrick Bridges <pbridges@unm.edu>
  *
  * @section DESCRIPTION
- * Simple 2 or 3 dimensional game of life on a periodic Cabana mesh
+ * 2 dimensional game of life with cabana-provided arrays, interation, and 
+ * halo exchange primitives
  */
 
 #ifndef DEBUG
@@ -55,7 +56,6 @@ static option longargs[] = {
  */
 struct ClArgs
 {
-    std::string device; /**< ( Serial, Threads, OpenMP, CUDA ) */
     std::array<int, 2> global_num_cells;          /**< Number of cells */
     int t_final; /**< Ending time */
     int write_freq;     /**< Write frequency */
@@ -71,9 +71,6 @@ void help( const int rank, char* progname )
     if ( rank == 0 )
     {
         std::cout << "Usage: " << progname << "\n";
-        std::cout << std::left << std::setw( 10 ) << "-x" << std::setw( 40 )
-                  << "On-node Parallelism Model (default serial)" << std::left
-                  << "\n";
         std::cout << std::left << std::setw( 10 ) << "-n" << std::setw( 40 )
                   << "Number of Cells (default 128)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
@@ -90,7 +87,7 @@ void help( const int rank, char* progname )
  * Parses command line input and updates the command line variables
  * accordingly.
  * Usage: ./[program] [-h help] [-n number-of-cells]
- * [-t number-time-steps] [-F write-frequency] [-x thread-model]
+ * [-t number-time-steps] [-F write-frequency]
  * @param rank The rank calling the function
  * @param argc Number of command line options passed to program
  * @param argv List of command line options passed to program
@@ -101,11 +98,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 {
 
     /// Set default values
-
-    cl.device = "serial"; // Default Thread Setting
-
     cl.t_final = 100;
-    cl.write_freq = 1;
+    cl.write_freq = 0;
     cl.global_num_cells = { 128, 128 };
 
     int ch;
@@ -135,21 +129,6 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 if ( rank == 0 )
                 {
                     std::cerr << "Invalid timesteps argument.\n";
-                    help( rank, argv[0] );
-                }
-                exit( -1 );
-            }
-            break;
-        case 'x':
-            cl.device = strdup( optarg );
-            if ( ( cl.device.compare( "serial" ) != 0 ) &&
-                 ( cl.device.compare( "cuda" ) != 0 ) &&
-                 ( cl.device.compare( "openmp" ) != 0 ) &&
-                 ( cl.device.compare( "pthreads" ) != 0 ) )
-            {
-                if ( rank == 0 )
-                {
-                    std::cerr << "Invalid  parallel device argument.\n";
                     help( rank, argv[0] );
                 }
                 exit( -1 );
@@ -189,33 +168,63 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 // Initialize field to a constant quantity and velocity
 struct MeshInitFunc
 {
-    // Initialize Variables
-    double _q;
-
-    MeshInitFunc( double q, std::array<double, 2> u )
-        : _q( q )
+    MeshInitFunc( )
     {
     };
 
     KOKKOS_INLINE_FUNCTION
-    bool operator()( Cabana::Grid::Cell, CabanaGOL::Field::Liveness,
-                     const int index[2], double& liveness ) const
+    double operator()( int index[2], double coords[2] ) const
     {
+        int i = coords[0], j = coords[1];
+        double liveness;
         /* We put a glider the in the middle of every 10 x 10 block. */
-        switch ((index[0] % 10) * 10 + index[1] % 10) {
+        switch ((i % 10) * 10 + j % 10) {
           case 33:
           case 34:
           case 44:
           case 45:
           case 53:
-            liveness = 1.0; 
+            return 1.0; 
             break;
           default:
-            liveness = 0.0;
+            return 0.0;
             break;
         }
-        return true;
+        return 0.0;
     };
+};
+
+struct GOL2DFunctor {
+    using view_type = Kokkos::View<double ***>;
+    view_type _src_array, _dst_array;
+
+    void setViews(const view_type s, const view_type d) {
+        _src_array = s;
+            _dst_array = d;
+    }
+
+    KOKKOS_INLINE_FUNCTION void operator()(int i, int j) const {
+        double sum = 0.0;
+        int ii, jj;
+        for (ii = -1; ii <= 1; ii++) {
+            for (jj = -1; jj <= 1; jj++) {
+                if ((ii == 0) && (jj == 0)) continue;
+                sum += _src_array(i + ii,j + jj, 0);
+            }
+        }
+        if (_src_array(i, j, 0) == 0.0) {
+            if ((sum > 2.99) && (sum < 3.01))
+                _dst_array(i, j, 0) = 1.0;
+            else 
+                _dst_array(i, j, 0) = 0.0;
+        } else {
+            if ((sum >= 1.99) && (sum <= 3.01))
+                _dst_array(i, j, 0) = 1.0;
+            else 
+                _dst_array(i, j, 0) = 0.0;
+        }
+    };
+    GOL2DFunctor() {}
 };
 
 int main( int argc, char* argv[] )
@@ -239,9 +248,6 @@ int main( int argc, char* argv[] )
         // Print Command Line Options
         std::cout << "Cabana Game of Life\n";
         std::cout << "=======Command line arguments=======\n";
-        std::cout << std::left << std::setw( 20 ) << "Thread Setting"
-                  << ": " << std::setw( 8 ) << cl.device
-                  << "\n"; // Threading Setting
         std::cout << std::left << std::setw( 20 ) << "Cells"
                   << ": " << std::setw( 8 ) << cl.global_num_cells[0]
                   << std::setw( 8 ) << cl.global_num_cells[1]
@@ -254,16 +260,16 @@ int main( int argc, char* argv[] )
         std::cout << "====================================\n";
     }
 
-    // Call advection solver
-    MeshInitFunc initializer( 0.0, { 0.0, 0.0 } );
-    auto solver = CabanaGOL::createSolver( cl.device, cl.global_num_cells, initializer );
-    solver->solve(cl.t_final, cl.write_freq);
-
-    // We need to make sure the solver, which includes a bunch of Kokkos-related allocations
-    // is shut down before we shut down Kokkos. TO do that, we simply set teh solver pointer 
-    // to nullptr; this will cause its reference count to go to zero and for it and everything
-    // it points to to be freed.
-    solver = nullptr;
+    // Call advection solver - put in a seperate scope so contained view object
+    // leaves scope before we shutdown.
+    {
+	using namespace CabanaGhost;
+        MeshInitFunc initializer;
+        GOL2DFunctor gol2Dfunctor;
+        Solver<2, GOL2DFunctor, Approach::Flat, Approach::Host> 
+            solver( cl.global_num_cells, true, gol2Dfunctor, initializer );
+        solver.solve(cl.t_final, 0.0, cl.write_freq); 
+    }
 
     // Shut things down
     Kokkos::finalize(); // Finalize Kokkos

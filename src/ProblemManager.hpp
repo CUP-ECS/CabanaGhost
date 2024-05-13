@@ -7,8 +7,8 @@
  * scatters and gathers
  */
 
-#ifndef CABANAGOL_PROBLEMMANAGER_HPP
-#define CABANAGOL_PROBLEMMANAGER_HPP
+#ifndef CABANAGHOST_PROBLEMMANAGER_HPP
+#define CABANAGHOST_PROBLEMMANAGER_HPP
 
 #ifndef DEBUG
 #define DEBUG 0
@@ -23,7 +23,7 @@
 
 #include <memory>
 
-namespace CabanaGOL
+namespace CabanaGhost
 {
 
 /**
@@ -79,18 +79,17 @@ struct Liveness
  * @brief ProblemManager class to store the mesh and state values, and
  * to perform gathers and scatters in the approprate number of dimensions.
  **/
-template <class ExecutionSpace, class MemorySpace, class ViewLayout>
+template <unsigned long Dims>
 class ProblemManager
 {
   public:
-    using memory_space = MemorySpace;
-    using execution_space = ExecutionSpace;
-
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
-    using kokkos_layout = ViewLayout;
-    using cell_array = Cabana::Grid::Array<double, Cabana::Grid::Cell, mesh_type, 
-                           kokkos_layout, memory_space>;
-    using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
+    using global_mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
+    using cell_array_type = Cabana::Grid::Array<double, Cabana::Grid::Cell, global_mesh_type>;
+    using device_type = typename cell_array_type::device_type;
+    using memory_space = typename cell_array_type::memory_space;
+    using view_type = typename cell_array_type::view_type;
+    using grid_type = Cabana::Grid::LocalGrid<global_mesh_type>;
+    using local_mesh_type = Cabana::Grid::LocalMesh<memory_space, global_mesh_type>;
     using halo_type = Cabana::Grid::Halo<memory_space>;
 
     template <class InitFunc>
@@ -105,9 +104,9 @@ class ProblemManager
             Cabana::Grid::createArrayLayout( _local_grid, 1, Cabana::Grid::Cell() );
 
         // The actual arrays storing mesh quantities
-        _liveness_curr = Cabana::Grid::createArray<double, kokkos_layout, memory_space>(
+        _liveness_curr = Cabana::Grid::createArray<double>(
             "liveness", cell_scalar_layout );
-        _liveness_next = Cabana::Grid::createArray<double, kokkos_layout, memory_space>(
+        _liveness_next = Cabana::Grid::createArray<double>(
             "liveness", cell_scalar_layout );
         //Cabana::Grid::ArrayOp::assign( *_liveness_curr, 0.0, Cabana::Grid::Ghost() );
         //Cabana::Grid::ArrayOp::assign( *_liveness_next, 0.0, Cabana::Grid::Ghost() );
@@ -117,35 +116,102 @@ class ProblemManager
         // First we create the generic halo pattern itself which can
         // handle non-persistent halos 
         int halo_depth = _local_grid->haloCellWidth();
-        _halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
+        _halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<Dims>(), 
                     halo_depth, *_liveness_curr );
 
         // Initialize State Values ( liveness )
         initialize( create_functor );
     }
 
+    template <class ViewType, class CellFunctor, class LocalMesh>
+    struct ViewFunctor {
+        CellFunctor _f;
+        ViewType _v;
+        LocalMesh _m;
+        ViewFunctor(ViewType v, CellFunctor f, LocalMesh m) 
+            : _v(v), _f(f), _m(m) {
+        };
+        KOKKOS_INLINE_FUNCTION
+        void operator()( const int i, const int j ) const
+            requires (Dims == 2)
+        {
+            int index[Dims] = {i, j};
+            double coords[Dims];
+	    _m.coordinates( Cabana::Grid::Cell(), index, coords);
+            _v(i, j, 0) = _f(index, coords);
+        };
+        KOKKOS_INLINE_FUNCTION
+        void operator()( const int i, const int j, const int k ) const
+            requires (Dims == 3)
+        {
+            int index[Dims] = {i, j, k};
+            double coords[Dims];
+	    _m.coordinates( Cabana::Grid::Cell(), index, coords);
+            _v(i, j, k, 0) = _f(index, coords);
+        };
+    };
+
     /**
-     * Initializes state values in the cells
+     * Initializes state values in the cells by calling functor with local index and 
+     * global coordinate
      * @param create_functor Initialization function
      **/
     template <class InitFunctor>
-    void initialize( const InitFunctor& create_functor )
+    void initializeOwned( cell_array_type a, const InitFunctor& create_functor )
     {
-        // Get State Arrays
-        auto l = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() ).view();
+        local_mesh_type local_mesh(*_local_grid);
+        view_type v = a.view();
+        ViewFunctor<view_type, InitFunctor, local_mesh_type> vf(v, create_functor, local_mesh);
 
-        // Loop Over All Owned Cells ( i, j )
+        // Loop Over and initialize all owned cells ( i, j )
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(),
                                                   Cabana::Grid::Local() );
-        Kokkos::parallel_for(
-            "Initialize Cells`",
-            Cabana::Grid::createExecutionPolicy( own_cells, ExecutionSpace() ),
-            KOKKOS_LAMBDA( const int i, const int j ) {
-                // Get Coordinates Associated with Indices ( i, j )
-                int coords[2] = { i, j };
-                create_functor( Cabana::Grid::Cell(), Field::Liveness(), coords,
-                                l( i, j, 0 ) );
-            } );
+
+        Cabana::Grid::grid_parallel_for( "Initialize Boundaries", 
+            Kokkos::DefaultExecutionSpace(), own_cells, vf );
+    }
+
+    template <class InitFunctor>
+    void initializeBoundary( cell_array_type a,  const InitFunctor& create_functor )
+    {
+        local_mesh_type local_mesh(*_local_grid);
+        view_type v = a.view();
+        ViewFunctor<view_type, InitFunctor, local_mesh_type> vf(v, create_functor, local_mesh);
+
+        // We also initialize any boundary (non-periodic) ghost cells.
+        for (int i = -1; i <= 1; i++) {
+            for (int j = -1; j <= 1; j++) {
+                for (int k = -1; k <= 1; k++) {
+                    std::array<int, Dims> dir;
+                    dir[0] = i; dir[1] = j; 
+                    if (Dims == 3) {
+                        if (i == j && j == k && k == 0) continue;
+                        dir[2] = k; // Set the k direction if there is one
+                    } else {
+                        if (i == j && i == 0) continue; // skip no direction case
+                        if (k != 0) continue; // skip redundant k cases
+                    }
+                    auto boundary_cells = 
+                        _local_grid->boundaryIndexSpace( Cabana::Grid::Ghost(), 
+                                                         Cabana::Grid::Cell(), dir);
+                    Cabana::Grid::grid_parallel_for( "Initialize Boundaries", 
+                        Kokkos::DefaultExecutionSpace(), boundary_cells, vf );
+                 }
+            }
+        }
+    }
+
+    template <class InitFunctor>
+    void initialize( const InitFunctor& create_functor )
+    {
+
+        // Get State Arrays
+        cell_array_type curr = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
+        cell_array_type next = get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() );
+
+	initializeOwned(curr, create_functor);
+        initializeBoundary(curr, create_functor);
+        initializeBoundary(next, create_functor);
     };
 
     /**
@@ -164,7 +230,7 @@ class ProblemManager
      * @param Version::Current
      * @return Returns array of current liveness at cell centers
      **/
-    cell_array get( Cabana::Grid::Cell, Field::Liveness,
+    cell_array_type get( Cabana::Grid::Cell, Field::Liveness,
                     Version::Current ) const
     {
         return *_liveness_curr;
@@ -177,7 +243,7 @@ class ProblemManager
      * @param Version::Next
      * @return Returns array of next liveness at cell centers
      **/
-    cell_array get( Cabana::Grid::Cell, Field::Liveness,
+    cell_array_type get( Cabana::Grid::Cell, Field::Liveness,
                     Version::Next ) const
     {
         return *_liveness_next;
@@ -199,11 +265,11 @@ class ProblemManager
      **/
     void gather( Version::Current ) const
     {
-        _halo->gather( ExecutionSpace(), *_liveness_curr );
+        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_curr );
     };
     void gather( Version::Next ) const
     {
-        _halo->gather( ExecutionSpace(), *_liveness_next );
+        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_next );
     };
 
     /**
@@ -225,10 +291,10 @@ class ProblemManager
     // Data items returned from Cabana create methods. Even though we likely hold the
     // only pointers these objects, they are shared_ptr instead of uniq_ptr because 
     // Cabana returns shared_ptr.
-    std::shared_ptr<cell_array> _liveness_curr, _liveness_next; // Data values
+    std::shared_ptr<cell_array_type> _liveness_curr, _liveness_next; // Data values
     std::shared_ptr<halo_type> _halo; // Persistent halos
 };
 
-} // namespace CabanaGOL
+} // namespace CabanaGhost
 
-#endif // CABANAGOL_PROBLEMMANAGER_HPP
+#endif // CABANAGHOST_PROBLEMMANAGER_HPP

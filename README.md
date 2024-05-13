@@ -1,2 +1,9 @@
-# CabanaGhost
-Regular Mesh Communciation/Computation Benchmark in Cabana to explore application-level primitives for stream- and kernel-triggered communication in combination with hierarchical parallelism. Initial example is a 2D game of life benchmark, but a 3D jacobi iteration benchmark is also in development.
+# CabanaGhost - Trivial Bulk Synchronous Computation/Communication on a Regular Mesh
+
+This is an implementation of the multi-dimensional regular mesh iteration and 
+halo exhange in Cabana/Kokkos, starting with 2D Game of Life. It is meant as 
+a bulk synchonous parallel regular mesh benchmark for both teaching modern 
+parallel programming and exploring programming and communication tradeoffs
+in post-ECP performance portability frameworks. The initial research target is 
+examining potential interactions between halo communication primitives and 
+different forms of Kokkos parallelism, particularly hierarchical parallelism,

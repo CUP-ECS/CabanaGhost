@@ -7,8 +7,8 @@
  * Silo Writer class to write results to a silo file using PMPIO
  */
 
-#ifndef CABANAGOL_SILOWRITER_HPP
-#define CABANAGOL_SILOWRITER_HPP
+#ifndef CABANAGHOST_SILOWRITER_HPP
+#define CABANAGHOST_SILOWRITER_HPP
 
 #ifndef DEBUG
 #define DEBUG 0
@@ -22,7 +22,7 @@
 #include <pmpio.h>
 #include <silo.h>
 
-namespace CabanaGOL
+namespace CabanaGhost
 {
 
 /**
@@ -30,23 +30,59 @@ namespace CabanaGOL
  * @class SiloWriter
  * @brief SiloWriter class to write results to Silo file using PMPIO
  **/
-template <class ExecutionSpace, class MemorySpace>
+template <unsigned long Dims>
 class SiloWriter
 {
   public:
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
+    using mem_type = typename Kokkos::DefaultExecutionSpace::memory_space;
+    using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
+    using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
+    using pm_type = ProblemManager<Dims>;
+    using device_type = typename Kokkos::DefaultExecutionSpace::device_type;
     /**
      * Constructor
      * Create new SiloWriter
      *
      * @param pm Problem manager object
      */
-    SiloWriter( std::shared_ptr<pm_type> & pm )
+    SiloWriter( const pm_type & pm )
         : _pm( pm )
     {
     };
 
+    /* Helper types and functions for converting multiple dimensions of grids */
+    using value_type = typename pm_type::cell_array_type::value_type;
+    using view_data_type = std::conditional_t<
+        3 == Dims, value_type****, std::conditional_t<2 == Dims, value_type***, void>>;
+    using owned_view_type = Kokkos::View<view_data_type, Kokkos::LayoutLeft, 
+        typename pm_type::cell_array_type::device_type>;
+    owned_view_type allocateOwnedArray(Cabana::Grid::IndexSpace<Dims> d)
+        requires (Dims == 3)
+    {
+        return owned_view_type("qOwned", d.extent( 0 ), d.extent( 1 ), d.extent( 2 ), 1);
+    }
+    owned_view_type allocateOwnedArray(Cabana::Grid::IndexSpace<Dims> d)
+        requires (Dims == 2)
+    {
+        return owned_view_type("qOwned", d.extent( 0 ), d.extent( 1 ), 1);
+    }
+
+    struct CopyFunctor {
+        typename pm_type::cell_array_type::view_type orig;
+        owned_view_type owned; 
+        int xmin, ymin, zmin;
+        KOKKOS_INLINE_FUNCTION
+        void operator()(const int i, const int j, const int k) const
+            requires (Dims == 3)
+        {
+                owned( i - xmin, j - ymin, k - zmin, 0 ) = orig( i, j, k, 0 );
+        }
+        void operator()(const int i, const int j) const 
+            requires (Dims == 2)
+        {
+            owned( i - xmin, j - ymin, 0 ) = orig( i, j, 0 );
+        }
+    };
     /**
      * Write File
      * @param dbile File handler to dbfile
@@ -60,15 +96,15 @@ class SiloWriter
                     double dt )
     {
         // Initialize Variables
-        int dims[2], zdims[2];
-        double *coords[2], *vars[2];
-        // double *spacing[2];
+        int dims[Dims], zdims[Dims];
+        double *coords[Dims]; 
+        // double *spacing[Dims];
         const char* coordnames[3] = { "X", "Y", "Z" };
         DBoptlist* optlist;
 
-        // Rertrieve the Local Grid and Local Mesh
-        auto local_grid = _pm->localGrid();
-        auto local_mesh = Cabana::Grid::createLocalMesh(local_grid);
+        // Retrieve the Local Grid and Local Mesh
+        std::shared_ptr<grid_type> local_grid = _pm.localGrid();
+        Cabana::Grid::LocalMesh<mem_type, mesh_type> local_mesh = Cabana::Grid::createLocalMesh<mem_type>(*local_grid);
 
         Kokkos::Profiling::pushRegion( "SiloWriter::WriteFile" );
 
@@ -90,28 +126,28 @@ class SiloWriter
         auto cell_domain = local_grid->indexSpace(
             Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
-        for ( unsigned int i = 0; i < 2; i++ )
+        for ( unsigned int i = 0; i < Dims; i++ )
         {
             zdims[i] = cell_domain.extent( i ); // zones (cells) in a dimension
             dims[i] = zdims[i] + 1;             // nodes in a dimension
         }
 
         // Allocate coordinate arrays in each dimension
-        for ( unsigned int i = 0; i < 2; i++ )
+        for ( unsigned int i = 0; i < Dims; i++ )
         {
             coords[i] = (double*)malloc( sizeof( double ) * dims[i] );
         }
 
         // Fill out coords[] arrays with coordinate values in each dimension
-        for ( unsigned int d = 0; d < 2; d++ )
+        for ( unsigned int d = 0; d < Dims; d++ )
         {
             for ( int i = cell_domain.min( d ); i < cell_domain.max( d ) + 1;
                   i++ )
             {
                 int iown = i - cell_domain.min( d );
-                int index[2];
-                double location[2];
-                for ( unsigned int j = 0; j < 2; j++ )
+                int index[Dims];
+                double location[Dims];
+                for ( unsigned int j = 0; j < Dims; j++ )
                     index[j] = 0;
                 index[d] = i;
                 local_mesh.coordinates( Cabana::Grid::Node(), index, location );
@@ -120,43 +156,42 @@ class SiloWriter
         }
 
         DBPutQuadmesh( dbfile, meshname, (DBCAS_t)coordnames, coords, dims,
-                       2, DB_DOUBLE, DB_COLLINEAR, optlist );
+                       Dims, DB_DOUBLE, DB_COLLINEAR, optlist );
         Kokkos::Profiling::popRegion();
 
         // Now we write the individual variables associated with this
         // portion of the mesh, potentially copying them out of device space
         // and making sure not to write ghost values.
 
-        // Advected quantity first - copy owned portion from the primary
-        // execution space to the host execution space
         Kokkos::Profiling::pushRegion( "SiloWriter::WriteFile::WriteLiveness" );
         auto q =
-            _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() );
+            _pm.get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() ).view();
         auto xmin = cell_domain.min( 0 );
         auto ymin = cell_domain.min( 1 );
+        auto zmin = Dims == 3 ? cell_domain.min( 2 ) : 0;
 
         // Silo is expecting row-major data so we make this a LayoutRight
         // array that we copy data into and then get a mirror view of.
         // XXX WHY DOES THIS ONLY WORK LAYOUTLEFT?
-        Kokkos::View<typename pm_type::cell_array::value_type***,
-                     Kokkos::LayoutLeft,
-                     typename pm_type::cell_array::device_type>
-            qOwned( "qowned", cell_domain.extent( 0 ), cell_domain.extent( 1 ),
-                    1 );
-        Kokkos::parallel_for(
-            "SiloWriter::qowned copy",
-            createExecutionPolicy( cell_domain, ExecutionSpace() ),
-            KOKKOS_LAMBDA( const int i, const int j ) {
-                qOwned( i - xmin, j - ymin, 0 ) = q( i, j, 0 );
-            } );
+        owned_view_type qOwned = allocateOwnedArray(cell_domain);
+
+        CopyFunctor copy_functor;
+        copy_functor.orig = q; copy_functor.owned = qOwned;
+        copy_functor.xmin = cell_domain.min(0); 
+        copy_functor.ymin = cell_domain.min(1);
+        copy_functor.zmin = Dims == 3 ? cell_domain.min(2) : 0;
+
+        Kokkos::parallel_for( "SiloWriter::qowned copy",
+            createExecutionPolicy( cell_domain, Kokkos::DefaultExecutionSpace() ),
+            copy_functor);
         auto qHost =
             Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), qOwned );
 
-        DBPutQuadvar1( dbfile, "liveness", meshname, qHost.data(), zdims, 2,
+        DBPutQuadvar1( dbfile, "liveness", meshname, qHost.data(), zdims, Dims,
                        NULL, 0, DB_DOUBLE, DB_ZONECENT, optlist );
         Kokkos::Profiling::popRegion();
 
-        for ( unsigned int i = 0; i < 2; i++ )
+        for ( unsigned int i = 0; i < Dims; i++ )
         {
             free( coords[i] );
         }
@@ -180,7 +215,7 @@ class SiloWriter
         Kokkos::Profiling::pushRegion( "SiloWriter::CreateSiloFile" );
 
         DBfile* silo_file = DBCreate( filename, DB_CLOBBER, DB_LOCAL,
-                                      "CabanaGOLRaw", driver );
+                                      "CabanaGhostRaw", driver );
 
         if ( silo_file )
         {
@@ -263,11 +298,11 @@ class SiloWriter
             mesh_block_names[i] = (char*)malloc( 1024 );
             q_block_names[i] = (char*)malloc( 1024 );
 
-            sprintf( mesh_block_names[i],
-                     "raw/CabanaGOLOutput%05d%05d.%s:/domain_%05d/Mesh",
+            snprintf( mesh_block_names[i], 1024,
+                     "raw/CabanaGhostOutput%05d%05d.%s:/domain_%05d/Mesh",
                      group_rank, time_step, file_ext, i );
-            sprintf( q_block_names[i],
-                     "raw/CabanaGOLOutput%05d%05d.%s:/domain_%05d/liveness",
+            snprintf( q_block_names[i], 1024,
+                     "raw/CabanaGhostOutput%05d%05d.%s:/domain_%05d/liveness",
                      group_rank, time_step, file_ext, i );
             block_types[i] = DB_QUADMESH;
             var_types[i] = DB_QUADVAR;
@@ -316,7 +351,7 @@ class SiloWriter
         Kokkos::Profiling::pushRegion( "SiloWriter::siloWrite" );
 
         Kokkos::Profiling::pushRegion( "SiloWriter::siloWrite::Setup" );
-        comm = _pm->localGrid()->globalGrid().comm();
+        comm = _pm.localGrid()->globalGrid().comm();
         MPI_Comm_size( comm, &size );
         MPI_Comm_rank( comm, &rank );
         MPI_Bcast( &numGroups, 1, MPI_INT, 0, comm );
@@ -327,12 +362,12 @@ class SiloWriter
                         createSiloFile, openSiloFile, closeSiloFile, &driver );
 
         // Set Filename to Reflect TimeStep
-        sprintf( masterfilename, "data/CabanaGOL%05d.%s", time_step,
+        snprintf( masterfilename, 256, "data/CabanaGhost%05d.%s", time_step,
                  file_ext );
-        sprintf( filename, "data/raw/CabanaGOLOutput%05d%05d.%s",
+        snprintf( filename, 256, "data/raw/CabanaGhostOutput%05d%05d.%s",
                  PMPIO_GroupRank( baton, rank ), time_step,
                  file_ext );
-        sprintf( nsname, "domain_%05d", rank );
+        snprintf( nsname, 256, "domain_%05d", rank );
 
         // Show Errors and Force FLoating Point
         DBShowErrors( DB_ALL, NULL );
@@ -347,7 +382,7 @@ class SiloWriter
         if ( rank == 0 )
         {
             master_file = DBCreate( masterfilename, DB_CLOBBER, DB_LOCAL,
-                                    "CabanaGOL", driver );
+                                    "CabanaGhost", driver );
             writeMultiObjects( master_file, baton, size, time_step, "silo" );
             DBClose( master_file );
         }
@@ -365,8 +400,9 @@ class SiloWriter
     }
 
   private:
-    std::shared_ptr<pm_type> _pm;
+    // The problem manager is owned by
+    const pm_type & _pm;
 };
 
-}; // namespace CabanaGOL
+}; // namespace CabanaGhost
 #endif

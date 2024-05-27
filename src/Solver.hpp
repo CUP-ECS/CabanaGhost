@@ -238,6 +238,7 @@ class Solver
         Cabana::Grid::grid_parallel_reduce("CabanaGhost Convergence Reduction",
             Kokkos::DefaultExecutionSpace(), own_cells, mdf, max);
 
+        Kokkos::fence();
 
         MPI_Allreduce(MPI_IN_PLACE, &max, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 

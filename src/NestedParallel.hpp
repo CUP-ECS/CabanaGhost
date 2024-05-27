@@ -1,8 +1,8 @@
 /****************************************************************************
- * Copyright (c) 2018-2023 by the CabanaGOL authors                            *
+ * Copyright (c) 2018-2023 by the CabanaGhost authors                       *
  * All rights reserved.                                                     *
  *                                                                          *
- * This file is part of the CabanaGOL test. CabanaGOL is distributed under  *
+ * This file is part of CabanaGhost. CabanaGhost is distributed under       *
  * a BSD 3-clause license. For the licensing terms see the LICENSE file in  *
  * the top-level directory.                                                 *
  *                                                                          *
@@ -13,18 +13,30 @@
   \file NestedParallel.hpp
   \brief Abstractions for nested parallelism
 */
-#ifndef CABANAGOL_NESTEDPARALLEL_HPP
-#define CABANAGOL_NESTEDPARALLEL_HPP
+#ifndef CABANAGHOST_NESTEDPARALLEL_HPP
+#define CABANAGHOST_NESTEDPARALLEL_HPP
 
 #include <Kokkos_Core.hpp>
 
-namespace CabanaGOL
+namespace CabanaGhost
 {
 //---------------------------------------------------------------------------//
 /*!
+  \brief Multi-dimensional Team Policy for Kokkos
+ */
+template <long N, Kokkos::Iterate OuterDir, class ExecutionSpace, class... Properties> 
+class MDTeamPolicy : public TeamPolicy<ExecutionSpace, Properties...>
+{
+  
+  public:
+    MDTeamPolicy(ExecutionSpace & space, std::array<N, int> league_size, int team_size, int vector_length = 1) 
+        : Kokkos::TeamPolicy(space, league_size.
+}
+
+/*!
   \brief Nested index space.
  */
-template <class ExecutionSpace, long N>
+template <class ExecutionSpace, long N, class OuterIterationPolicy, class InnerIterationPolicy>
 class NestedIndexSpace : public Cabana::Grid::IndexSpace<N>
 {
   public:
@@ -107,15 +119,21 @@ void
 nested_parallel_for( const std::string &label, NestedIndexSpace<ExecutionSpace, N> index_space,
                      MemberType team_member, FunctorType &functor)
 {
-    Kokkos::Array<long, N> start = index_space.tileStart(team_member);
-    Kokkos::Array<long, N> extent = index_space.tileExtent(team_member);
-    auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<N>, MemberType>(team_member, extent);
-    Kokkos::parallel_for(block, [&](int i, int j)
-    {
-        functor(start[0] + i, start[1] + j);
-    });
+{
+    return Kokkos::TeamPolicy<ExecutionSpace>(index_space.leagueSize(), Kokkos::AUTO);
 }
 
-} // namespace CabanaGOL
+/*! 
+ * nested_parallel_for a nested index space
+ */
+template <class MemberType, class FunctorType, class ExecutionSpace, int N>
+void 
+nested_parallel_for( const std::string &label, NestedIndexSpace<ExecutionSpace, N> index_space,
+                     MemberType team_member, FunctorType &functor)
+{
 
-#endif // end NESTEDPARALLEL_HPP
+} 
+
+} // namespace CabanaGhost
+
+#endif CABANAGHOST_NESTEDPARALLEL_HPP

@@ -265,11 +265,11 @@ class ProblemManager
      **/
     void gather( Version::Current ) const
     {
-        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_curr );
+        _halo->enqueueGather( Kokkos::DefaultExecutionSpace(), *_liveness_curr );
     };
     void gather( Version::Next ) const
     {
-        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_next );
+        _halo->enqueueGather( Kokkos::DefaultExecutionSpace(), *_liveness_next );
     };
 
     /**

@@ -359,6 +359,7 @@ void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
     int league_size = blocks_per_dim * blocks_per_dim;
     int istart = own_cells.min(0), jstart = own_cells.min(1);
     int iend = own_cells.max(0), jend = own_cells.max(1);
+    auto f = _iter_func;
 
     typedef typename Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>::member_type member_type;
     Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
@@ -381,7 +382,7 @@ void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
         auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
         Kokkos::parallel_for(block, [&](int i, int j)
         {
-            _iter_func(ibase + i, jbase + j);
+            f(ibase + i, jbase + j);
         });
 
         // 3. Finally, any team-specific operations that need the block to be completed

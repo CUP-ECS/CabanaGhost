@@ -22,6 +22,7 @@ if( NOT Cabana_ENABLE_GRID )
   message( FATAL_ERROR "Cabana must be compiled with Grid support" )
 endif()
 find_package(SILO REQUIRED)
+find_package(Kokkos REQUIRED)
 
 # Get Clang Format to use for making sure the resulting code is
 # properly formatted
@@ -29,6 +30,7 @@ find_package(CLANG_FORMAT 10)
 
 # library
 add_subdirectory(src)
+#add_subdirectory(tests)
 
 # Add a target for formatting the code using Clang
 if(CLANG_FORMAT_FOUND)

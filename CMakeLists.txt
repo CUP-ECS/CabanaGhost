@@ -30,7 +30,7 @@ find_package(CLANG_FORMAT 10)
 
 # library
 add_subdirectory(src)
-#add_subdirectory(tests)
+add_subdirectory(tests)
 
 # Add a target for formatting the code using Clang
 if(CLANG_FORMAT_FOUND)

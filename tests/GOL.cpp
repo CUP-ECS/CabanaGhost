@@ -22,6 +22,7 @@
 
 // And now 
 #include "Solver.hpp"
+//#include "tstDriver.hpp"
 
 #if DEBUG
 #include <iostream>
@@ -228,20 +229,48 @@ struct GOL2DFunctor {
     GOL2DFunctor() {}
 };
 
+TEST(goltest, BasicParameters){
+  int comm_size, rank;
+  int test = 0;
+  MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); // Number of Ranks
+  MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // My Rank
+  std::cout << "rank: " << rank << std::endl;
+  ASSERT_GE(comm_size, rank);
+  ClArgs cl;
+  cl.t_final = 100;
+  cl.write_freq = 0;
+  cl.global_num_cells = { 128, 128 };
+  ASSERT_EQ(cl.t_final, 100);
+  //  ASSERT_EQ(c.global_num_cells[0], 128);
+  {
+    using namespace CabanaGhost;
+    MeshInitFunc initializer;
+    GOL2DFunctor gol2Dfunctor;
+    Solver<2, GOL2DFunctor, Approach::Flat, Approach::Host> 
+      solver( cl.global_num_cells, true, gol2Dfunctor, initializer );
+        solver.solve(cl.t_final, 0.0, cl.write_freq); 
+  }
+  std::cout << "hello, world! " << std::endl;
+}
+
 int main( int argc, char* argv[] )
 {
+  ::testing::InitGoogleTest(&argc, argv);
     MPI_Init( &argc, &argv );         // Initialize MPI
     Kokkos::initialize( argc, argv ); // Initialize Kokkos
 
     // MPI Info
     int comm_size, rank;
+    int test = 0;
     MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); // Number of Ranks
     MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // My Rank
-
+    
     // Parse Input
     ClArgs cl;
-    if ( parseInput( rank, argc, argv, cl ) != 0 )
-        return -1;
+    // where input was parsed, input defaults
+    cl.t_final = 100;
+    cl.write_freq = 0;
+    cl.global_num_cells = { 128, 128 };
 
     // Only Rank 0 Prints Command Line Options
     if ( rank == 0 )
@@ -273,8 +302,9 @@ int main( int argc, char* argv[] )
     }
 
     // Shut things down
+    int return_val = RUN_ALL_TESTS();
     Kokkos::finalize(); // Finalize Kokkos
     MPI_Finalize();     // Finalize MPI
 
-    return 0;
+    return return_val;
 };

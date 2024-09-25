@@ -22,7 +22,7 @@
 
 // And now 
 #include "Solver.hpp"
-//#include "tstDriver.hpp"
+#include "tstDriver.hpp"
 
 #if DEBUG
 #include <iostream>
@@ -248,11 +248,12 @@ TEST(goltest, BasicParameters){
     GOL2DFunctor gol2Dfunctor;
     Solver<2, GOL2DFunctor, Approach::Flat, Approach::Host> 
       solver( cl.global_num_cells, true, gol2Dfunctor, initializer );
-        solver.solve(cl.t_final, 0.0, cl.write_freq); 
+    solver.solve(cl.t_final, 0.0, cl.write_freq); 
   }
   std::cout << "hello, world! " << std::endl;
 }
 
+/*
 int main( int argc, char* argv[] )
 {
   ::testing::InitGoogleTest(&argc, argv);
@@ -308,3 +309,4 @@ int main( int argc, char* argv[] )
 
     return return_val;
 };
+*/

@@ -22,6 +22,7 @@
 
 // And now 
 #include "Solver.hpp"
+#include "tstDriver.hpp"
 
 #if DEBUG
 #include <iostream>
@@ -234,6 +235,31 @@ struct JacobiFunctor {
     JacobiFunctor() {}
 };
 
+TEST(goltest, BasicParameters){
+  int comm_size, rank;
+  int test = 0;
+  MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); // Number of Ranks
+  MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // My Rank
+  ASSERT_GE(comm_size, rank);
+  ClArgs cl;
+  cl.max_iterations = 1000;
+  cl.write_freq = 0;
+  cl.global_num_cells = { 64, 64, 64 };
+  cl.tolerance = 0.001;
+  ASSERT_EQ(cl.max_iterations, 1000);
+  //  ASSERT_EQ(c.global_num_cells[0], 128);
+  {
+    using namespace CabanaGhost;
+    // Call advection solver
+    MeshInitFunc initializer;
+    JacobiFunctor iteration_functor;
+    Solver<3, JacobiFunctor, Approach::Flat, Approach::Host> 
+      solver(cl.global_num_cells, false, iteration_functor, initializer );
+    solver.solve(cl.max_iterations, cl.tolerance, cl.write_freq);
+  }
+}
+
+/*
 int main( int argc, char* argv[] )
 {
     MPI_Init( &argc, &argv );         // Initialize MPI
@@ -246,8 +272,12 @@ int main( int argc, char* argv[] )
 
     // Parse Input
     ClArgs cl;
-    if ( parseInput( rank, argc, argv, cl ) != 0 )
-        return -1;
+    //if ( parseInput( rank, argc, argv, cl ) != 0 )
+    //    return -1;
+    cl.max_iterations = 1000;
+    cl.write_freq = 0;
+    cl.global_num_cells = { 64, 64, 64 };
+    cl.tolerance = 0.001;
 
     // Only Rank 0 Prints Command Line Options
     if ( rank == 0 )
@@ -289,3 +319,4 @@ int main( int argc, char* argv[] )
 
     return 0;
 };
+*/

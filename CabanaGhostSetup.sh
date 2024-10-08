@@ -83,19 +83,11 @@ setup() {
     if [ -d $HOME/repos/CabanaGhost ]; then
         echo "'CabanaGhost' directory already exists"
     else
-        git clone --recurse-submodules -j16 git@github.com:CUP-ECS/CabanaGhost.git $HOME/repos/CabanaGhost
+	# clones into blt branch and downloads the blt module
+        git clone -b blt --recurse-submodules -j16 git@github.com:CUP-ECS/CabanaGhost.git $HOME/repos/CabanaGhost
     fi
 
-    cd $HOME/repos/CabanaGhost; git checkout blt
-    
-    # BLT setup
-    if [ -d $HOME/repos/CabanaGhost/blt ]; then
-        echo "'blt' directory already exists."
-    else
-        git clone git@github.com:LLNL/blt.git $HOME/repos/CabanaGhost/blt -j16
-    fi
-
-    echo "BLT downloaded!"
+    cd $HOME/repos/CabanaGhost
 
     # Update the CMakeLists.txt for CabanaGhost to use the correct blt path
     # TODO verify if this is necessary

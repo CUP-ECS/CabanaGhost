@@ -99,7 +99,7 @@ setup() {
         mkdir build; cd build
     fi
 
-    cmake -D CMAKE_PREFIX_PATH="$KOKKOS_INSTALL_DIR;$CABANA_DIR;$SILO_INSTALL_DIR" ..
+    cmake -DBLT_CXX_STD=c++14 -D CMAKE_PREFIX_PATH="$KOKKOS_INSTALL_DIR;$CABANA_DIR;$SILO_INSTALL_DIR" ..
     make -j16
     echo "CabanaGhost setup complete!"
 

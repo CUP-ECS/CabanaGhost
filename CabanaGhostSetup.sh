@@ -113,7 +113,8 @@ test() {
 
 clean() {
     echo "Cleaning up..."
-    rm -rf $HOME/repos $HOME/install
+    rm -rf $HOME/install $HOME/repos/Silo $HOME/repos/kokkos $HOME/repos/Cabana
+    rm -rf $HOME/repos/CabanaGhost/build
     echo "Cleanup complete!"
 }
 

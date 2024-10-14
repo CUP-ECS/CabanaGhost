@@ -32,41 +32,14 @@ setup() {
     fi
 
     cd $HOME/repos/kokkos
-    export CRAYPE_LINK_TYPE=dynamic
+    export CRAYPE_LINK_TYPE=dynamic # Necessary?
+    export KOKKOS_INSTALL_DIR=$HOME/install/kokkos
     # install ROCm?
     # -DKokkos_ENABLE_HIP=ON -DKokkos_ARCH_AMD_GFX90A=ON
-    cmake -S $HOME/repos/kokkos -B $HOME/repos/kokkos/build -DCMAKE_INSTALL_PREFIX=$HOME/install/kokkos -DCMAKE_BUILD_TYPE=Release
+    cmake -S $HOME/repos/kokkos -B $HOME/repos/kokkos/build -DCMAKE_INSTALL_PREFIX=$KOKKOS_INSTALL_DIR -DCMAKE_BUILD_TYPE=Release
     cd build; make -j16; make install -j16
     echo "Kokkos setup complete!"
-
-    # Cabana setup
-    # Check if Cabana is there
-    if [ -d $HOME/repos/Cabana ]; then
-        echo "'Cabana' directory already exists."
-    else
-        git clone https://github.com/ECP-copa/Cabana.git $HOME/repos/Cabana -j16
-    fi
-
-    export KOKKOS_INSTALL_DIR=$HOME/install/kokkos
-    export CABANA_DIR=$HOME/install/Cabana
-
-    if [ -d $HOME/repos/Cabana/build ]; then
-        rm -rf $HOME/repos/Cabana/build; mkdir $HOME/repos/Cabana/build
-    else
-        mkdir $HOME/repos/Cabana/build
-    fi
-
-    cd $HOME/repos/Cabana/build
-    cmake \
-	    -D CMAKE_BUILD_TYPE="Release" \
-	    -D CMAKE_PREFIX_PATH=$KOKKOS_INSTALL_DIR \
-	    -D CMAKE_INSTALL_PREFIX=$CABANA_DIR \
-	    -D Cabana_ENABLE_GRID=ON \
-	    -D Cabana_ENABLE_MPI=ON \
-	    ..;
-    make install -j16
-    echo "Cabana setup complete!"
-
+    
     # Silo setup
     if [ -d $HOME/repos/Silo ]; then
         echo "'Silo' directory already exists."
@@ -78,6 +51,33 @@ setup() {
     ./configure --prefix=$SILO_INSTALL_DIR
     make -j16; make install -j16
     echo "Silo setup complete!"
+
+    # Cabana setup
+    # Check if Cabana is there
+    if [ -d $HOME/repos/Cabana ]; then
+        echo "'Cabana' directory already exists."
+    else
+        git clone https://github.com/ECP-copa/Cabana.git $HOME/repos/Cabana -j16
+    fi
+
+    export CABANA_DIR=$HOME/install/Cabana
+
+    if [ -d $HOME/repos/Cabana/build ]; then
+        rm -rf $HOME/repos/Cabana/build; mkdir $HOME/repos/Cabana/build
+    else
+        mkdir $HOME/repos/Cabana/build
+    fi
+
+    cd $HOME/repos/Cabana/build
+    cmake \
+	    -D CMAKE_BUILD_TYPE="Release" \
+	    -D CMAKE_PREFIX_PATH="$KOKKOS_INSTALL_DIR;$SILO_INSTALL_DIR" \
+	    -D CMAKE_INSTALL_PREFIX=$CABANA_DIR \
+	    -D Cabana_ENABLE_GRID=ON \
+	    -D Cabana_ENABLE_MPI=ON \
+	    ..;
+    make install -j16
+    echo "Cabana setup complete!"
 
     # CabanaGhost setup
     if [ -d $HOME/repos/CabanaGhost ]; then
@@ -100,7 +100,7 @@ setup() {
     fi
 
     cmake -DBLT_CXX_STD=c++14 -D CMAKE_PREFIX_PATH="$KOKKOS_INSTALL_DIR;$CABANA_DIR;$SILO_INSTALL_DIR" ..
-    make -j16
+    make #-j16
     echo "CabanaGhost setup complete!"
 
     echo "Setup complete!"

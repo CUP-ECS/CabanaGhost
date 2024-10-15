@@ -1,24 +1,31 @@
 #!/bin/bash
 
 setup() {
-    echo "Setting up directories..."
+    init
+    kokkos
+    silo
+    cabana
+    cabanaghost
+    echo "Setup complete!"
+}
 
-    # Check if directories exist
+init() {
+    echo "Setting up directories..."
     if [ -d $HOME/repos ]; then
-        echo "'repos' directory already exists."
+        :
     else
         mkdir $HOME/repos
     fi
 
     if [ -d $HOME/install ]; then
-        echo "'install' directory already exists."
+        :
     else
         mkdir $HOME/install; 
         mkdir $HOME/install/kokkos $HOME/install/Cabana $HOME/install/Silo; 
     fi
+}
 
-    # Kokkos setup
-    # Check if Kokkos is there
+kokkos() {
     if [ -d $HOME/repos/kokkos ]; then
         echo "'kokkos' directory already exists."
     else
@@ -34,13 +41,19 @@ setup() {
     cd $HOME/repos/kokkos
     export CRAYPE_LINK_TYPE=dynamic # Necessary?
     export KOKKOS_INSTALL_DIR=$HOME/install/kokkos
-    # install ROCm?
+    #module load rocm/6.1.2 # newer: rocm/6.2.1
     # -DKokkos_ENABLE_HIP=ON -DKokkos_ARCH_AMD_GFX90A=ON
-    cmake -S $HOME/repos/kokkos -B $HOME/repos/kokkos/build -DCMAKE_INSTALL_PREFIX=$KOKKOS_INSTALL_DIR -DCMAKE_BUILD_TYPE=Release
+    cmake -S $HOME/repos/kokkos \
+        -B $HOME/repos/kokkos/build \
+        -DCMAKE_INSTALL_PREFIX=$KOKKOS_INSTALL_DIR \
+        # -DKokkos_ENABLE_HIP=ON \
+        # -DKokkos_ARCH_AMD_GFX90A=ON \
+        -DCMAKE_BUILD_TYPE=Release;
     cd build; make -j16; make install -j16
     echo "Kokkos setup complete!"
-    
-    # Silo setup
+}
+
+silo() {
     if [ -d $HOME/repos/Silo ]; then
         echo "'Silo' directory already exists."
     else
@@ -51,9 +64,9 @@ setup() {
     ./configure --prefix=$SILO_INSTALL_DIR
     make -j16; make install -j16
     echo "Silo setup complete!"
+}
 
-    # Cabana setup
-    # Check if Cabana is there
+cabana() {
     if [ -d $HOME/repos/Cabana ]; then
         echo "'Cabana' directory already exists."
     else
@@ -78,20 +91,17 @@ setup() {
 	    ..;
     make install -j16
     echo "Cabana setup complete!"
+}
 
-    # CabanaGhost setup
+cabanaghost() {
     if [ -d $HOME/repos/CabanaGhost ]; then
-        echo "'CabanaGhost' directory already exists"
+        :
     else
 	# clones into blt branch and downloads the blt module
         git clone -b blt --recurse-submodules -j16 git@github.com:CUP-ECS/CabanaGhost.git $HOME/repos/CabanaGhost
     fi
 
     cd $HOME/repos/CabanaGhost
-
-    # Update the CMakeLists.txt for CabanaGhost to use the correct blt path
-    # TODO verify if this is necessary
-    # sed -i "s|include(blt/SetupBLT.cmake)|include($HOME/repos/blt/SetupBLT.cmake)|" $HOME/repos/CabanaGhost/CMakeLists.txt
     
     if [ -d $HOME/repos/CabanaGhost/build ]; then
         rm -rf build; mkdir build; cd build
@@ -99,11 +109,11 @@ setup() {
         mkdir build; cd build
     fi
 
-    cmake -DBLT_CXX_STD=c++14 -D CMAKE_PREFIX_PATH="$KOKKOS_INSTALL_DIR;$CABANA_DIR;$SILO_INSTALL_DIR" ..
+    cmake -DBLT_CXX_STD=c++14 \
+        -D CMAKE_PREFIX_PATH="$KOKKOS_INSTALL_DIR;$CABANA_DIR;$SILO_INSTALL_DIR" \
+        ..;
     make #-j16
     echo "CabanaGhost setup complete!"
-
-    echo "Setup complete!"
 }
 
 test() {
@@ -123,6 +133,16 @@ if [ "$1" == "clean" ]; then
     clean
 elif [ "$1" == "test" ]; then
     test
+elif [ "$1" == "init" ]; then
+    init
+elif [ "$1" == "kokkos" ]; then
+    kokkos
+elif [ "$1" == "silo" ]; then
+    silo
+elif [ "$1" == "cabana" ]; then
+    cabana
+elif [ "$1" == "cabanaghost" ]; then
+    cabanaghost
 else
     setup
 fi

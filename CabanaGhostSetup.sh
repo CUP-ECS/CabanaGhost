@@ -23,6 +23,7 @@ init() {
         mkdir $HOME/install; 
         mkdir $HOME/install/kokkos $HOME/install/Cabana $HOME/install/Silo; 
     fi
+    echo "Complete!"
 }
 
 kokkos() {
@@ -43,7 +44,8 @@ kokkos() {
     export KOKKOS_INSTALL_DIR=$HOME/install/kokkos
     #module load rocm/6.1.2 # newer: rocm/6.2.1
     # -DKokkos_ENABLE_HIP=ON -DKokkos_ARCH_AMD_GFX90A=ON
-    cmake -S $HOME/repos/kokkos \
+    cmake \
+        -S $HOME/repos/kokkos \
         -B $HOME/repos/kokkos/build \
         -DCMAKE_INSTALL_PREFIX=$KOKKOS_INSTALL_DIR \
         # -DKokkos_ENABLE_HIP=ON \
@@ -109,7 +111,8 @@ cabanaghost() {
         mkdir build; cd build
     fi
 
-    cmake -DBLT_CXX_STD=c++14 \
+    cmake \
+        -DBLT_CXX_STD=c++14 \
         -D CMAKE_PREFIX_PATH="$KOKKOS_INSTALL_DIR;$CABANA_DIR;$SILO_INSTALL_DIR" \
         ..;
     make #-j16
@@ -118,7 +121,13 @@ cabanaghost() {
 
 test() {
     cd $HOME/repos/CabanaGhost/tests
-    cmake ..
+    #export KOKKOS_INSTALL_DIR=$HOME/install/kokkos
+    #export CABANA_DIR=$HOME/install/Cabana
+    #export SILO_INSTALL_DIR=$HOME/install/Silo
+    cmake \
+        -DBLT_CXX_STD=c++14 \
+        -D CMAKE_PREFIX_PATH="$HOME/install/kokkos;$HOME/install/Cabana;$HOME/install/Silo" \
+        ..;
 }
 
 clean() {

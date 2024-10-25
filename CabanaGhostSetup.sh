@@ -6,11 +6,11 @@ setup() {
     silo
     cabana
     cabanaghost
-    echo "Setup complete!"
+    printf "Setup complete!"
 }
 
 init() {
-    echo "Setting up directories..."
+    printf "Setting up directories...\n"
     if [ -d $HOME/repos ]; then
         :
     else
@@ -23,12 +23,12 @@ init() {
         mkdir $HOME/install; 
         mkdir $HOME/install/kokkos $HOME/install/Cabana $HOME/install/Silo; 
     fi
-    echo "Complete!"
+    printf "Complete!\n"
 }
 
 kokkos() {
     if [ -d $HOME/repos/kokkos ]; then
-        echo "'kokkos' directory already exists."
+        printf "'kokkos' directory already exists."
     else
         git clone git@github.com:kokkos/kokkos.git $HOME/repos/kokkos -j16
     fi
@@ -41,9 +41,6 @@ kokkos() {
 
     cd $HOME/repos/kokkos
     export CRAYPE_LINK_TYPE=dynamic # Necessary?
-    export KOKKOS_INSTALL_DIR=$HOME/install/kokkos
-    #module load rocm/6.1.2 # newer: rocm/6.2.1
-    # -DKokkos_ENABLE_HIP=ON -DKokkos_ARCH_AMD_GFX90A=ON
     cmake \
         -S $HOME/repos/kokkos \
         -B $HOME/repos/kokkos/build \
@@ -52,12 +49,12 @@ kokkos() {
         # -DKokkos_ARCH_AMD_GFX90A=ON \
         -DCMAKE_BUILD_TYPE=Release;
     cd build; make -j16; make install -j16
-    echo "Kokkos setup complete!"
+    printf "Kokkos setup complete!\n\n"
 }
 
 silo() {
     if [ -d $HOME/repos/Silo ]; then
-        echo "'Silo' directory already exists."
+        printf "'Silo' directory already exists."
     else
         git clone git@github.com:LLNL/Silo.git $HOME/repos/Silo -j16
     fi
@@ -65,17 +62,15 @@ silo() {
     cd $HOME/repos/Silo; export SILO_INSTALL_DIR=$HOME/install/Silo
     ./configure --prefix=$SILO_INSTALL_DIR
     make -j16; make install -j16
-    echo "Silo setup complete!"
+    printf "Silo setup complete!\n\n"
 }
 
 cabana() {
     if [ -d $HOME/repos/Cabana ]; then
-        echo "'Cabana' directory already exists."
+        printf "'Cabana' directory already exists."
     else
         git clone https://github.com/ECP-copa/Cabana.git $HOME/repos/Cabana -j16
     fi
-
-    export CABANA_DIR=$HOME/install/Cabana
 
     if [ -d $HOME/repos/Cabana/build ]; then
         rm -rf $HOME/repos/Cabana/build; mkdir $HOME/repos/Cabana/build
@@ -92,7 +87,7 @@ cabana() {
 	    -D Cabana_ENABLE_MPI=ON \
 	    ..;
     make install -j16
-    echo "Cabana setup complete!"
+    printf "Cabana setup complete!\n\n"
 }
 
 cabanaghost() {
@@ -116,25 +111,25 @@ cabanaghost() {
         -D CMAKE_PREFIX_PATH="$KOKKOS_INSTALL_DIR;$CABANA_DIR;$SILO_INSTALL_DIR" \
         ..;
     make #-j16
-    echo "CabanaGhost setup complete!"
+    printf "CabanaGhost setup complete!\n"
 }
 
 test() {
     cd $HOME/repos/CabanaGhost/tests
-    #export KOKKOS_INSTALL_DIR=$HOME/install/kokkos
-    #export CABANA_DIR=$HOME/install/Cabana
-    #export SILO_INSTALL_DIR=$HOME/install/Silo
     cmake \
-        -DBLT_CXX_STD=c++14 \
+        -DBLT_CXX_STD=c++20 \
+        -DCMAKE_C_COMPILER=cc \
+        -DCMAKE_CXX_COMPILER=hipcc \
         -D CMAKE_PREFIX_PATH="$HOME/install/kokkos;$HOME/install/Cabana;$HOME/install/Silo" \
         ..;
 }
 
 clean() {
-    echo "Cleaning up..."
-    rm -rf $HOME/install $HOME/repos/Silo $HOME/repos/kokkos $HOME/repos/Cabana
+    printf "Cleaning up...\n"
+    rm -rf $HOME/install/kokkos $HOME/install/Cabana $HOME/install/Silo
+    rm -rf $HOME/repos/Silo $HOME/repos/kokkos $HOME/repos/Cabana
     rm -rf $HOME/repos/CabanaGhost/build
-    echo "Cleanup complete!"
+    printf "Cleanup complete!"
 }
 
 # Check for arguments

@@ -2,7 +2,10 @@
 cmake_minimum_required(VERSION 3.18)
 
 project(CabanaGOL LANGUAGES C CXX VERSION 0.1.0)
-
+# Disable google test pthreads in BLT to support to ensure we compile in  
+# some environments, as some compilers (e.g. craycc) and BLT aren't communicating  
+# on linking against pthreads.
+set(gtest_disable_pthreads ON CACHE BOOL "")
 include(GNUInstallDirs)
 include(blt/SetupBLT.cmake)
 

@@ -77,6 +77,7 @@ class SiloWriter
         {
                 owned( i - xmin, j - ymin, k - zmin, 0 ) = orig( i, j, k, 0 );
         }
+        KOKKOS_INLINE_FUNCTION
         void operator()(const int i, const int j) const 
             requires (Dims == 2)
         {

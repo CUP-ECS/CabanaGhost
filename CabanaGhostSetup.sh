@@ -1,6 +1,7 @@
 #!/bin/bash
 
 setup() {
+    module load rocm/6.1.2
     init
     kokkos
     silo
@@ -27,6 +28,7 @@ init() {
 }
 
 kokkos() {
+    module load rocm/6.1.2 # duplicated in case setup() is not called
     if [ -d $HOME/repos/kokkos ]; then
         printf "'kokkos' directory already exists."
     else
@@ -44,28 +46,31 @@ kokkos() {
     cmake \
         -S $HOME/repos/kokkos \
         -B $HOME/repos/kokkos/build \
-        -DCMAKE_INSTALL_PREFIX=$KOKKOS_INSTALL_DIR \
-        # -DKokkos_ENABLE_HIP=ON \
-        # -DKokkos_ARCH_AMD_GFX90A=ON \
+        -DCMAKE_CXX_COMPILER=hipcc \
+        -DCMAKE_INSTALL_PREFIX=$HOME/install/kokkos \
+        -DKokkos_ENABLE_HIP=ON \
+        -DKokkos_ARCH_AMD_GFX90A=ON \
         -DCMAKE_BUILD_TYPE=Release;
     cd build; make -j16; make install -j16
     printf "Kokkos setup complete!\n\n"
 }
 
 silo() {
+    module load rocm/6.1.2
     if [ -d $HOME/repos/Silo ]; then
         printf "'Silo' directory already exists."
     else
         git clone git@github.com:LLNL/Silo.git $HOME/repos/Silo -j16
     fi
 
-    cd $HOME/repos/Silo; export SILO_INSTALL_DIR=$HOME/install/Silo
-    ./configure --prefix=$SILO_INSTALL_DIR
+    cd $HOME/repos/Silo;
+    ./configure --prefix=$HOME/install/Silo # possibly replace with cmake
     make -j16; make install -j16
     printf "Silo setup complete!\n\n"
 }
 
 cabana() {
+    module load rocm/6.1.2 # duplicated in case setup() is not called
     if [ -d $HOME/repos/Cabana ]; then
         printf "'Cabana' directory already exists."
     else
@@ -81,8 +86,9 @@ cabana() {
     cd $HOME/repos/Cabana/build
     cmake \
 	    -D CMAKE_BUILD_TYPE="Release" \
-	    -D CMAKE_PREFIX_PATH="$KOKKOS_INSTALL_DIR;$SILO_INSTALL_DIR" \
-	    -D CMAKE_INSTALL_PREFIX=$CABANA_DIR \
+        -DCMAKE_CXX_COMPILER=hipcc \
+	    -D CMAKE_PREFIX_PATH="$HOME/install/kokkos;$HOME/install/Silo" \
+	    -D CMAKE_INSTALL_PREFIX=$HOME/install/Cabana \
 	    -D Cabana_ENABLE_GRID=ON \
 	    -D Cabana_ENABLE_MPI=ON \
 	    ..;
@@ -91,6 +97,7 @@ cabana() {
 }
 
 cabanaghost() {
+    module load rocm/6.1.2 # duplicated in case setup() is not called
     if [ -d $HOME/repos/CabanaGhost ]; then
         :
     else
@@ -107,14 +114,17 @@ cabanaghost() {
     fi
 
     cmake \
-        -DBLT_CXX_STD=c++14 \
-        -D CMAKE_PREFIX_PATH="$KOKKOS_INSTALL_DIR;$CABANA_DIR;$SILO_INSTALL_DIR" \
+        -DBLT_CXX_STD=c++20 \
+        -DCMAKE_C_COMPILER=cc \
+        -DCMAKE_CXX_COMPILER=hipcc \
+        -D CMAKE_PREFIX_PATH="$HOME/install/kokkos;$HOME/install/Cabana;$HOME/install/Silo" \
         ..;
-    make #-j16
+    make -j16
     printf "CabanaGhost setup complete!\n"
 }
 
 test() {
+    module load rocm/6.1.2 # duplicated in case setup() is not called
     cd $HOME/repos/CabanaGhost/tests
     cmake \
         -DBLT_CXX_STD=c++20 \

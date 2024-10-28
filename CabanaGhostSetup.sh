@@ -3,8 +3,8 @@
 setup() {
     module load rocm/6.1.2
     init
-    kokkos
     silo
+    kokkos
     cabana
     cabanaghost
     printf "Setup complete!"

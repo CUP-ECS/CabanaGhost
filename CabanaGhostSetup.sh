@@ -161,6 +161,9 @@ elif [ "$1" == "cabana" ]; then
     cabana
 elif [ "$1" == "cabanaghost" ]; then
     cabanaghost
+elif [ "$1" == "all" ]; then
+    setup
+    test
 else
     setup
 fi

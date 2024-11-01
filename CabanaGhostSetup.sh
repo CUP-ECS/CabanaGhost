@@ -134,6 +134,8 @@ test() {
         -D CMAKE_MODULE_PATH="$HOME/install/kokkos;$HOME/install/Cabana;$HOME/install/Silo" \
         ..;
     make all;
+    cd $HOME/repos/CabanaGhost/build; make; cd $HOME/repos/CabanaGhost/build/tests; make;
+    blt_gtest_smoke;
 }
 
 clean() {

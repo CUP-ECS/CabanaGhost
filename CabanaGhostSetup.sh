@@ -7,7 +7,7 @@ setup() {
     kokkos
     cabana
     cabanaghost
-    printf "Setup complete!"
+    printf "Setup complete!\n"
 }
 
 init() {
@@ -131,7 +131,9 @@ test() {
         -DCMAKE_C_COMPILER=cc \
         -DCMAKE_CXX_COMPILER=hipcc \
         -D CMAKE_PREFIX_PATH="$HOME/install/kokkos;$HOME/install/Cabana;$HOME/install/Silo" \
+        -D CMAKE_MODULE_PATH="$HOME/install/kokkos;$HOME/install/Cabana;$HOME/install/Silo" \
         ..;
+    make all;
 }
 
 clean() {
@@ -139,7 +141,7 @@ clean() {
     rm -rf $HOME/install/kokkos $HOME/install/Cabana $HOME/install/Silo
     rm -rf $HOME/repos/Silo $HOME/repos/kokkos $HOME/repos/Cabana
     rm -rf $HOME/repos/CabanaGhost/build
-    printf "Cleanup complete!"
+    printf "Cleanup complete!\n"
 }
 
 # Check for arguments

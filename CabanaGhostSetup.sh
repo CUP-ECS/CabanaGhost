@@ -42,7 +42,7 @@ kokkos() {
     fi
 
     cd $HOME/repos/kokkos
-    export CRAYPE_LINK_TYPE=dynamic # Necessary?
+    export CRAYPE_LINK_TYPE=dynamic # Necessary? (Problematic for Chicoma)
     cmake \
         -S $HOME/repos/kokkos \
         -B $HOME/repos/kokkos/build \

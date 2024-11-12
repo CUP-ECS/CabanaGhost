@@ -124,6 +124,7 @@ cabanaghost() {
 }
 
 test() {
+    export LD_LIBRARY_PATH=/opt/cray/pe/cce/default/cce/x86_64/lib/:$LD_LIBRARY_PATH
     module load rocm/6.1.2 # duplicated in case setup() is not called
     cd $HOME/repos/CabanaGhost/tests
     cmake \
@@ -134,8 +135,7 @@ test() {
         -D CMAKE_MODULE_PATH="$HOME/install/kokkos/;$HOME/install/Cabana/;$HOME/install/Silo/" \
         ..;
     make all;
-    cd $HOME/repos/CabanaGhost/build; make; cd $HOME/repos/CabanaGhost/build/tests; make;
-    blt_gtest_smoke;
+    cd $HOME/repos/CabanaGhost/build; make test; 
 }
 
 clean() {

@@ -130,8 +130,8 @@ test() {
         -DBLT_CXX_STD=c++20 \
         -DCMAKE_C_COMPILER=cc \
         -DCMAKE_CXX_COMPILER=hipcc \
-        -D CMAKE_PREFIX_PATH="$HOME/install/kokkos;$HOME/install/Cabana;$HOME/install/Silo" \
-        -D CMAKE_MODULE_PATH="$HOME/install/kokkos;$HOME/install/Cabana;$HOME/install/Silo" \
+        -D CMAKE_PREFIX_PATH="$HOME/install/kokkos/;$HOME/install/Cabana/;$HOME/install/Silo/" \
+        -D CMAKE_MODULE_PATH="$HOME/install/kokkos/;$HOME/install/Cabana/;$HOME/install/Silo/" \
         ..;
     make all;
     cd $HOME/repos/CabanaGhost/build; make; cd $HOME/repos/CabanaGhost/build/tests; make;

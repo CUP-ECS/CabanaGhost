@@ -123,6 +123,7 @@ TEST(goltest, BasicTest){
   cl.write_freq = 0;
   cl.global_num_cells = { 128, 128 };
   ASSERT_EQ(cl.t_final, 100);
+  Kokkos::Timer timer;
   {
     using namespace CabanaGhost;
     MeshInitFunc initializer;
@@ -131,4 +132,6 @@ TEST(goltest, BasicTest){
       solver( cl.global_num_cells, true, gol2Dfunctor, initializer );
     solver.solve(cl.t_final, 0.0, cl.write_freq); 
   }
+  double time = timer.seconds();
+  std::cout << "Time: " << time << std::endl;
 }

@@ -114,6 +114,7 @@ TEST(goltest, BasicTest){
   cl.tolerance = 0.001;
   ASSERT_EQ(cl.max_iterations, 1000);
   //  ASSERT_EQ(c.global_num_cells[0], 128);
+  Kokkos::Timer timer;
   {
     using namespace CabanaGhost;
     // Call advection solver
@@ -123,4 +124,6 @@ TEST(goltest, BasicTest){
       solver(cl.global_num_cells, false, iteration_functor, initializer );
     solver.solve(cl.max_iterations, cl.tolerance, cl.write_freq);
   }
+  double time = timer.seconds();
+  std::cout << "Time: " << time << std::endl;
 }

@@ -1,7 +1,7 @@
 # project settings
 cmake_minimum_required(VERSION 3.18)
 
-project(CabanaGOL LANGUAGES C CXX VERSION 0.1.0)
+project(CabanaGhost LANGUAGES C CXX VERSION 0.1.0)
 
 include(GNUInstallDirs)
 

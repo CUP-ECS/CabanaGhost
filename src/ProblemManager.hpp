@@ -88,7 +88,7 @@ class ProblemManager
     using view_type = typename cell_array_type::view_type;
     using grid_type = Cabana::Grid::LocalGrid<global_mesh_type>;
     using local_mesh_type = Cabana::Grid::LocalMesh<memory_space, global_mesh_type>;
-    using halo_type = Cabana::Grid::Impl::VanillaStreamHalo<memory_space>;
+  using halo_type = Cabana::Grid::StreamHalo<memory_space>;
 
     template <class InitFunc>
     ProblemManager( const std::shared_ptr<grid_type>& local_grid,
@@ -114,8 +114,8 @@ class ProblemManager
         // First we create the generic halo pattern itself which can
         // handle non-persistent halos 
         int halo_depth = _local_grid->haloCellWidth();
-        _halo = Cabana::Grid::Impl::createVanillaStreamHalo( 
-            Kokkos::DefaultExecutionSpace(), 
+        _halo = Cabana::Grid::createStreamHalo( 
+					       //Kokkos::DefaultExecutionSpace(), 
             Cabana::Grid::NodeHaloPattern<Dims>(), halo_depth, 
             *_liveness_curr );
 

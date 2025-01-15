@@ -115,7 +115,6 @@ class ProblemManager
         // handle non-persistent halos 
         int halo_depth = _local_grid->haloCellWidth();
         _halo = Cabana::Grid::createStreamHalo( 
-					       //Kokkos::DefaultExecutionSpace(), 
             Cabana::Grid::NodeHaloPattern<Dims>(), halo_depth, 
             *_liveness_curr );
 
@@ -265,11 +264,23 @@ class ProblemManager
      **/
     void gather( Version::Current ) const
     {
-        _halo->enqueueGather( Kokkos::DefaultExecutionSpace(), *_liveness_curr );
+        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_curr );
     };
     void gather( Version::Next ) const
     {
-        _halo->enqueueGather( Kokkos::DefaultExecutionSpace(), *_liveness_next );
+        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_next );
+    };
+
+    /** 
+     * Stream-triggered gather from neighbors
+     */
+    void enqueueGather( Version::Current ) const
+    {
+        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_curr );
+    };
+    void enqueueGather( Version::Next ) const
+    {
+        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_next );
     };
 
     /**

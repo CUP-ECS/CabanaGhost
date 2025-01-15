@@ -32,6 +32,7 @@ namespace Approach {
   struct Flat {};
   template <std::size_t Blocks> struct Hierarchical {}; // XXX should this be number of blocks or tile size?
   struct Host {};
+  struct Stream {};
   struct Kernel {};
 } // namespace Approach
 
@@ -92,11 +93,13 @@ class Solver
      * a timestep. These are conditional on the computataional approach being
      * used. */
     void step() requires (std::same_as<Approach::Flat, CompApproach> 
-                          && std::same_as<Approach::Host, CommApproach>);
+                          && (std::same_as<Approach::Host, CommApproach>
+                              || std::same_as<Approach::Stream, CommApproach>));
 
     template <std::size_t Blocks>
     void step() requires (std::same_as<Approach::Hierarchical<Blocks>, CompApproach>
-                 && std::same_as<Approach::Host, CommApproach>);
+                          && (std::same_as<Approach::Host, CommApproach>
+                              || std::same_as<Approach::Stream, CommApproach>));
 
 
 #if 0
@@ -116,6 +119,7 @@ class Solver
                                    Version::Next() );
         auto src_view = src_array.view(), dst_view = dst_array.view();
         auto halo = _pm->halo( );
+        auto exec_space = Kokkos::DefaultExecutionSpace();
 
         // 2. Figure out the portion of that data that we own and need to 
         // compute. Note the assumption that the Ghost data is already up
@@ -178,14 +182,14 @@ class Solver
             //   1. Use the thread team to pack any buffers that need to be sent
             //   2. use team_member.barrier() to synchronize before having one 
             //      team member call pready to send any data needed.
-	    halo.gatherReady(Kokkos::DefaultExecutionSpace(), team_member, {itile, jtile}, dst_array);
+	    halo.gatherReady(exec_space, team_member, {itile, jtile}, dst_array);
         });
 
         // 7. Make sure the parallel for loop is done before use its results
-        Kokkos::fence();
+        exec_space.fence();
       
         /* 8. Finish the halo for the next time step */ 
-        halo.gatherFinish( Kokkos::DefaultExecutionSpace(), dst_array );
+        halo.gatherFinish( exec_space, dst_array );
 
         /* Switch the source and destination arrays and advance time*/
         _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
@@ -221,8 +225,6 @@ class Solver
     };
 
     bool checkConvergence( const double tol )
-        requires (std::same_as<Approach::Flat, CompApproach> 
-                  && std::same_as<Approach::Host, CommApproach>)
     {
         auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
@@ -230,16 +232,19 @@ class Solver
                                   Version::Current() ).view();
         auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
                                   Version::Next() ).view();
-        // 3. Iterate over the space of indexes we own and apply the 
+        auto exec_space = Kokkos::DefaultExecutionSpace();
+
+        // Iterate over the space of indexes we own and apply the 
         // functor in parallel to that space to calculate the 
         // output data
         MaxDifferenceFunctor mdf(src_view, dst_view);
         double max = 0;
         Cabana::Grid::grid_parallel_reduce("CabanaGhost Convergence Reduction",
-            Kokkos::DefaultExecutionSpace(), own_cells, mdf, max);
+            exec_space, own_cells, mdf, max);
 
-        Kokkos::fence();
+        exec_space.fence();
 
+        // XXX We need to figure out an interface for this that is generalizable.
         MPI_Allreduce(MPI_IN_PLACE, &max, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
         return max < tol;
@@ -250,7 +255,7 @@ class Solver
         int t = 0;
         int rank;
         bool converged = false;
-
+        auto exec_space = Kokkos::DefaultExecutionSpace();
         MPI_Comm_rank(_local_grid->globalGrid().comm(), &rank);
 
         if (write_freq > 0) {
@@ -271,6 +276,10 @@ class Solver
             // Output mesh state periodically
             if ( write_freq && (0 == t % write_freq ))
             {
+                if constexpr (std::same_as<Approach::Stream, CommApproach>) {
+                    exec_space.fence(); // If we're doing I/O, we need to fence the 
+                                        // stream so that the data is up to date.
+                }
                 _silo->siloWrite( strdup( "Mesh" ), t, _time, 1 );
             }
  
@@ -278,6 +287,7 @@ class Solver
                 converged = checkConvergence(tol);
             }
         } while ( !converged && ( _time < t_max ) );
+        exec_space.fence(); // In case everything was able to be queued to stream.
     }
 
   private:
@@ -294,7 +304,8 @@ template <unsigned long Dims, class IterationFunctor,
           class CompApproach, class CommApproach>
 void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
     requires (std::same_as<Approach::Flat, CompApproach> 
-              && std::same_as<Approach::Host, CommApproach>) 
+              && (std::same_as<Approach::Host, CommApproach> 
+                  || std::same_as<Approach::Stream, CommApproach>))
 {
     // 1. Get the data we need and then construct a functor to handle
     // parallel computation on that 
@@ -303,6 +314,7 @@ void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
                               Version::Current() ).view();
     auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
                               Version::Next() ).view();
+    auto exec_space = Kokkos::DefaultExecutionSpace();
 
     // XXX Change this to a swap
     _iter_func.setViews(src_view, dst_view);
@@ -316,16 +328,18 @@ void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
     // functor in parallel to that space to calculate the 
     // output data
     Cabana::Grid::grid_parallel_for("Game of Life Mesh Parallel Loop", 
-        Kokkos::DefaultExecutionSpace(), own_cells, _iter_func);
+        exec_space, own_cells, _iter_func);
 
-    // 4. Make sure the parallel for loop is done before use its results
-    Kokkos::fence();
-
-    // 5. Gather our ghost cells for the next time around from our
+    // 4. Gather our ghost cells for the next time around from our
     // our neighbor's owned cells.
-    _pm->gather( Version::Next() );
+    if constexpr (std::same_as<Approach::Host, CommApproach>) {
+        exec_space.fence();
+        _pm->gather( Version::Next() );
+    } else {
+        _pm->enqueueGather( Version::Next() );
+    }
 
-    /* 6. Make the state we next state the current state and advance time*/
+    /* 5. Make the state we next state the current state and advance time*/
     _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
     _time++;
 }
@@ -335,7 +349,8 @@ template <unsigned long Dims, class IterationFunctor,
 template <std::size_t Blocks>
 void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
   requires (std::same_as<Approach::Hierarchical<Blocks>, CompApproach>
-                 && std::same_as<Approach::Host, CommApproach>)
+                 && (std::same_as<Approach::Host, CommApproach> 
+                     || std::same_as<Approach::Stream, CommApproach>))
 {
     // 1. Get the data we need and then construct a functor to handle
     // parallel computation on that 
@@ -360,6 +375,7 @@ void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
     int istart = own_cells.min(0), jstart = own_cells.min(1);
     int iend = own_cells.max(0), jend = own_cells.max(1);
     auto f = _iter_func;
+    auto exec_space = Kokkos::DefaultExecutionSpace();
 
     typedef typename Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>::member_type member_type;
     Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
@@ -391,13 +407,16 @@ void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
         // team_member.team_barrier();
     });
 
-    // Make sure the parallel for loop is done before use its results
-    Kokkos::fence();
-      
-    /* Halo the computed values for the next time step */
-    _pm->gather( Version::Next() );
+    // 4. Gather our ghost cells for the next time around from our
+    // our neighbor's owned cells.
+    if constexpr (std::same_as<Approach::Host, CommApproach>) {
+        exec_space.fence();
+        _pm->gather( Version::Next() );
+    } else {
+        _pm->enqueueGather( Version::Next() );
+    }
 
-    /* Switch the source and destination arrays and advance time*/
+    /* 5. Switch the source and destination arrays and advance time*/
     _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
     _time++;
 }

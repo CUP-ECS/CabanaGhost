@@ -266,7 +266,10 @@ int main( int argc, char* argv[] )
 	using namespace CabanaGhost;
         MeshInitFunc initializer;
         GOL2DFunctor gol2Dfunctor;
-        Solver<2, GOL2DFunctor, Approach::Flat, Approach::Host> 
+        // We use the stream triggered version here since we don't need convergence
+        // checks. As a result, the entire compute process is just enqueued to a stream
+        // if there's no I/O.
+        Solver<2, GOL2DFunctor, Approach::Flat, Approach::Stream> 
             solver( cl.global_num_cells, true, gol2Dfunctor, initializer );
         solver.solve(cl.t_final, 0.0, cl.write_freq); 
     }

@@ -2,7 +2,7 @@ set(DEPENDS_ON
   Cabana::Core
   Cabana::Grid
   SILO::silo 
-  MPI::MPI_C
+  MPI::MPI_CXX
   )
 
 add_executable( gol GOL.cpp )

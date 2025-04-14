@@ -277,7 +277,8 @@ int main( int argc, char* argv[] )
         // Call advection solver
         MeshInitFunc initializer;
         JacobiFunctor iteration_functor;
-        Solver<3, JacobiFunctor, Approach::Flat, Approach::Host> 
+	// set Approach to Stream if using stream-triggering
+        Solver<3, JacobiFunctor, Approach::Flat, Approach::Stream> 
             solver(cl.global_num_cells, false, iteration_functor, initializer );
         solver.solve(cl.max_iterations, cl.tolerance, cl.write_freq);
     }

@@ -271,7 +271,7 @@ int main( int argc, char* argv[] )
                   << "\n"; // Steps between write
         std::cout << "====================================\n";
     }
-
+    Kokkos::Timer timer;
     {
         using namespace CabanaGhost;
         // Call advection solver
@@ -282,7 +282,11 @@ int main( int argc, char* argv[] )
             solver(cl.global_num_cells, false, iteration_functor, initializer );
         solver.solve(cl.max_iterations, cl.tolerance, cl.write_freq);
     }
-
+    if ( rank == 0 )
+      {
+	double time = timer.seconds();
+	std::cout << "Solver time: " << time << std::endl;
+      }
     // Shut things down
     Kokkos::finalize(); // Finalize Kokkos
     MPI_Finalize();     // Finalize MPI

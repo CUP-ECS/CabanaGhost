@@ -259,7 +259,8 @@ int main( int argc, char* argv[] )
                   << "\n"; // Steps between write
         std::cout << "====================================\n";
     }
-
+    
+    Kokkos::Timer timer;
     // Call advection solver - put in a seperate scope so contained view object
     // leaves scope before we shutdown.
     {
@@ -273,7 +274,11 @@ int main( int argc, char* argv[] )
             solver( cl.global_num_cells, true, gol2Dfunctor, initializer );
         solver.solve(cl.t_final, 0.0, cl.write_freq); 
     }
-
+    if ( rank == 0 )
+      {
+	double time = timer.seconds();
+	std::cout << "Solver time: " << time << std::endl;
+      }
     // Shut things down
     Kokkos::finalize(); // Finalize Kokkos
     MPI_Finalize();     // Finalize MPI

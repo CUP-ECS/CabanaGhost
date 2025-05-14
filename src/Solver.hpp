@@ -38,12 +38,13 @@ namespace Approach {
 
 //---------------------------------------------------------------------------//
 
-template <unsigned long Dims, class IterationFunctor, class CompApproach, class CommApproach>
+template <class ExecutionSpace, unsigned long Dims, class IterationFunctor, class CompApproach, class CommApproach>
 class Solver 
 {
   public:
     using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
-    using pm_type = ProblemManager<Dims>;
+    using execution_space = ExecutionSpace;
+    using pm_type = ProblemManager<ExecutionSpace, Dims>;
     using array_type = typename pm_type::cell_array_type;
     using view_type = typename array_type::view_type;
 
@@ -76,7 +77,7 @@ class Solver
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, 1 );
 
         // Create a problem manager to manage mesh state
-        _pm = std::make_unique<ProblemManager<Dims>>( _local_grid, create_functor );
+        _pm = std::make_unique<ProblemManager<execution_space, Dims>>( _local_grid, create_functor );
 
         // Set up Silo for I/O
         _silo = std::make_unique<SiloWriter<Dims>>( *_pm );
@@ -100,102 +101,6 @@ class Solver
     void step() requires (std::same_as<Approach::Hierarchical<Blocks>, CompApproach>
                           && (std::same_as<Approach::Host, CommApproach>
                               || std::same_as<Approach::Stream, CommApproach>));
-
-
-#if 0
-    // Sketch of a hierarchical communication approach with kernel triggering, 
-    // but it doesn't compile yet.
-    template <std::size_t Blocks, class Comp, class Comm>
-        requires std::same_as<Approach::Hierarchical<Blocks>, Comp>
-                 && std::same_as<Approach::Kernel, Comm>
-    void step()
-    {
-        // 1. Get the data we need and then construct a functor to handle
-        // parallel computation on that 
-        auto local_grid = _pm->localGrid();
-        auto src_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
-                                   Version::Current() );
-        auto dst_array = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
-                                   Version::Next() );
-        auto src_view = src_array.view(), dst_view = dst_array.view();
-        auto halo = _pm->halo( );
-        auto exec_space = Kokkos::DefaultExecutionSpace();
-
-        // 2. Figure out the portion of that data that we own and need to 
-        // compute. Note the assumption that the Ghost data is already up
-        // to date here.
-        auto own_cells = 
-          _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), 
-                                   Cabana::Grid::Local() );
-
-        // We use hierarchical parallelism to enable partitioned communication 
-        // along the boundary as blocks of the mesh are computed. There is  
-        // some computational cost versus non-hierarchical parallelism to this.
-    
-        // 3. Determine the number of teams in the league (the league size)
-        // based on the block size we want to communicate in each dimension. 
-        int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
-        int iblocks = Blocks, jblocks = Blocks; 
-        int iblock_size = (iextent + iblocks - 1)/iblocks,
-            jblock_size = (jextent + jblocks - 1)/jblocks;
-        int league_size = iblocks * jblocks;
-        int istart = own_cells.min(0), jstart = own_cells.min(1);
-        int iend = own_cells.max(0), jend = own_cells.max(1);
-
-        // 4. Start the halo exchange process
-	halo.gatherStart(Kokkos::DefaultExecutionSpace(), dst_array);
-
-        // 5. Define the thread team policy which will compute elements 
-        typedef typename Kokkos::TeamPolicy<DefaultExecutionSpace>::member_type member_type;
-        Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
- 
-        // 6. Launch the thread teams, one per block
-        Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
-        	KOKKOS_LAMBDA(member_type team_member) 
-        {
-            // 6a. Figure out the i/j pieces of the block this team member is 
-            // responsible for. 
-            // XXX Should make Kokkos or Cabana helper functions to do this. XXX
-	    int league_rank = team_member.league_rank();
-	    int itile = league_rank / iblocks,
-	        jtile = league_rank % iblocks; 
-	    int ibase = istart + itile * iblock_size,
-	        jbase = jstart + jtile * jblock_size;
-	    int ilimit = std::min(ibase + iblock_size, iend),
-	        jlimit = std::min(jbase + jblock_size, jend);
-	    int iextent = ilimit - ibase,
-	        jextent = jlimit - jbase;
-
-	    // 6b. The team of threads iterates over its block. Each thread 
-            // in the team may handle multiple indexes, depending on the 
-            // size of the team. 
-            // XXX Make a TeamThreadMDRange that takes start and end indexes 
-            // in each dimension just like the standard MDRange can. XXX
-	    auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
-	    Kokkos::parallel_for(block, [&](int i, int j)
-	    {
-	        _iter_func(ibase + i, jbase + j);
-	    });
-
-	    // 6c. Finally, the team is done with its block and can work on any
-            // communication that the block needs. Note that this can also
-            //   1. Use the thread team to pack any buffers that need to be sent
-            //   2. use team_member.barrier() to synchronize before having one 
-            //      team member call pready to send any data needed.
-	    halo.gatherReady(exec_space, team_member, {itile, jtile}, dst_array);
-        });
-
-        // 7. Make sure the parallel for loop is done before use its results
-        exec_space.fence();
-      
-        /* 8. Finish the halo for the next time step */ 
-        halo.gatherFinish( exec_space, dst_array );
-
-        /* Switch the source and destination arrays and advance time*/
-        _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
-        _time++;
-    }
-#endif // if 0 for kernel triggering
 
     struct MaxDifferenceFunctor
     {
@@ -232,7 +137,7 @@ class Solver
                                   Version::Current() ).view();
         auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
                                   Version::Next() ).view();
-        auto exec_space = Kokkos::DefaultExecutionSpace();
+        auto exec_space = execution_space();
 
         // Iterate over the space of indexes we own and apply the 
         // functor in parallel to that space to calculate the 
@@ -255,7 +160,7 @@ class Solver
         int t = 0;
         int rank;
         bool converged = false;
-        auto exec_space = Kokkos::DefaultExecutionSpace();
+        auto exec_space = execution_space();
         MPI_Comm_rank(_local_grid->globalGrid().comm(), &rank);
 
         if (write_freq > 0) {
@@ -296,7 +201,7 @@ class Solver
     
     std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
     IterationFunctor& _iter_func; // XXX Actually define this class some time
-    std::unique_ptr<ProblemManager<Dims>> _pm;
+    std::unique_ptr<ProblemManager<execution_space, Dims>> _pm;
     std::unique_ptr<SiloWriter<Dims>> _silo;
 };
 
@@ -314,7 +219,7 @@ void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
                               Version::Current() ).view();
     auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
                               Version::Next() ).view();
-    auto exec_space = Kokkos::DefaultExecutionSpace();
+    auto exec_space = execution_space();
 
     // XXX Change this to a swap
     _iter_func.setViews(src_view, dst_view);
@@ -375,10 +280,10 @@ void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
     int istart = own_cells.min(0), jstart = own_cells.min(1);
     int iend = own_cells.max(0), jend = own_cells.max(1);
     auto f = _iter_func;
-    auto exec_space = Kokkos::DefaultExecutionSpace();
+    auto exec_space = execution_space();
 
-    typedef typename Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>::member_type member_type;
-    Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace> mesh_policy(league_size, Kokkos::AUTO);
+    typedef typename Kokkos::TeamPolicy<execution_space>::member_type member_type;
+    Kokkos::TeamPolicy<execution_space> mesh_policy(league_size, Kokkos::AUTO);
     Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
         KOKKOS_LAMBDA(member_type team_member) 
     {

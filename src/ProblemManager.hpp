@@ -114,7 +114,7 @@ class ProblemManager
         // First we create the generic halo pattern itself which can
         // handle non-persistent halos 
         int halo_depth = _local_grid->haloCellWidth();
-        _halo = Cabana::Grid::createStreamHalo( 
+        _halo = Cabana::Grid::createStreamHalo( execution_space(), 
             Cabana::Grid::NodeHaloPattern<Dims>(), halo_depth, 
             *_liveness_curr );
 
@@ -167,7 +167,7 @@ class ProblemManager
                                                   Cabana::Grid::Local() );
 
         Cabana::Grid::grid_parallel_for( "Initialize Boundaries", 
-            Kokkos::DefaultExecutionSpace(), own_cells, vf );
+            execution_space(), own_cells, vf );
     }
 
     template <class InitFunctor>
@@ -194,7 +194,7 @@ class ProblemManager
                         _local_grid->boundaryIndexSpace( Cabana::Grid::Ghost(), 
                                                          Cabana::Grid::Cell(), dir);
                     Cabana::Grid::grid_parallel_for( "Initialize Boundaries", 
-                        Kokkos::DefaultExecutionSpace(), boundary_cells, vf );
+                        execution_space(), boundary_cells, vf );
                  }
             }
         }
@@ -264,11 +264,11 @@ class ProblemManager
      **/
     void gather( Version::Current ) const
     {
-        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_curr );
+        _halo->gather( execution_space(), *_liveness_curr );
     };
     void gather( Version::Next ) const
     {
-        _halo->gather( Kokkos::DefaultExecutionSpace(), *_liveness_next );
+        _halo->gather( execution_space(), *_liveness_next );
     };
 
     /** 
@@ -276,11 +276,11 @@ class ProblemManager
      */
     void enqueueGather( Version::Current ) const
     {
-        _halo->enqueueGather( Kokkos::DefaultExecutionSpace(), *_liveness_curr );
+        _halo->enqueueGather( *_liveness_curr );
     };
     void enqueueGather( Version::Next ) const
     {
-        _halo->enqueueGather( Kokkos::DefaultExecutionSpace(), *_liveness_next );
+        _halo->enqueueGather( *_liveness_next );
     };
 
     /**

@@ -37,8 +37,9 @@ class SiloWriter
     using mem_type = typename Kokkos::DefaultExecutionSpace::memory_space;
     using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using pm_type = ProblemManager<Dims>;
-    using device_type = typename Kokkos::DefaultExecutionSpace::device_type;
+    using exec_type = Kokkos::DefaultExecutionSpace;
+    using pm_type = ProblemManager<exec_type, Dims>;
+    using device_type = typename exec_type::device_type;
     /**
      * Constructor
      * Create new SiloWriter

@@ -40,9 +40,11 @@ endif()
 # find MPI ADVANCE Stream Triggering
 #Cabana_add_dependency( PACKAGE stream-triggering )
 #set_package_properties(stream-triggering PROPERTIES TYPE OPTIONAL PURPOSE "Stream Triggered Backend")
-find_package(stream-triggering REQUIRED)
-if(STREAM_TRIGGERING_FOUND)# AND Cabana_ENABLE_STREAMCOMM)
+if( Cabana_ENABLE_MPIADVANCE )
+  find_package(stream-triggering REQUIRED)
+  if(STREAM_TRIGGERING_FOUND)# AND Cabana_ENABLE_MPISTREAM)
   install(FILES
     ${SMAKE_CURRENT_SOURCE_DIR}/cmake/FindStreamTriggering.cmake
     DESTINATION ${Cabana_INSTALL_PACKAGEDDIR} )
+  endif()
 endif()

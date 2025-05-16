@@ -88,7 +88,7 @@ class ProblemManager
     using grid_type = Cabana::Grid::LocalGrid<global_mesh_type>;
     using local_mesh_type = Cabana::Grid::LocalMesh<memory_space, global_mesh_type>;
     using exec_space = ExecutionSpace;
-    using halo_type = Cabana::Grid::StreamHalo<exec_space, memory_space>;
+    using halo_type = Cabana::Grid::Experimental::StreamHalo<exec_space, memory_space>;
 
     template <class InitFunc>
     ProblemManager( const std::shared_ptr<grid_type>& local_grid,
@@ -114,7 +114,7 @@ class ProblemManager
         // First we create the generic halo pattern itself which can
         // handle non-persistent halos 
         int halo_depth = _local_grid->haloCellWidth();
-        _halo = Cabana::Grid::createStreamHalo( execution_space(), 
+        _halo = Cabana::Grid::Experimental::createStreamHalo( exec_space(), 
             Cabana::Grid::NodeHaloPattern<Dims>(), halo_depth, 
             *_liveness_curr );
 
@@ -167,7 +167,7 @@ class ProblemManager
                                                   Cabana::Grid::Local() );
 
         Cabana::Grid::grid_parallel_for( "Initialize Boundaries", 
-            execution_space(), own_cells, vf );
+            exec_space(), own_cells, vf );
     }
 
     template <class InitFunctor>
@@ -194,7 +194,7 @@ class ProblemManager
                         _local_grid->boundaryIndexSpace( Cabana::Grid::Ghost(), 
                                                          Cabana::Grid::Cell(), dir);
                     Cabana::Grid::grid_parallel_for( "Initialize Boundaries", 
-                        execution_space(), boundary_cells, vf );
+                        exec_space(), boundary_cells, vf );
                  }
             }
         }
@@ -264,11 +264,11 @@ class ProblemManager
      **/
     void gather( Version::Current ) const
     {
-        _halo->gather( execution_space(), *_liveness_curr );
+        _halo->gather( exec_space(), *_liveness_curr );
     };
     void gather( Version::Next ) const
     {
-        _halo->gather( execution_space(), *_liveness_next );
+        _halo->gather( exec_space(), *_liveness_next );
     };
 
     /** 

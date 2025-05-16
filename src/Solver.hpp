@@ -205,9 +205,9 @@ class Solver
     std::unique_ptr<SiloWriter<Dims>> _silo;
 };
 
-template <unsigned long Dims, class IterationFunctor,
+template <class ExecutionSpace, unsigned long Dims, class IterationFunctor,
           class CompApproach, class CommApproach>
-void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
+void Solver<ExecutionSpace, Dims, IterationFunctor, CompApproach, CommApproach>::step()
     requires (std::same_as<Approach::Flat, CompApproach> 
               && (std::same_as<Approach::Host, CommApproach> 
                   || std::same_as<Approach::Stream, CommApproach>))
@@ -249,10 +249,10 @@ void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
     _time++;
 }
 
-template <unsigned long Dims, class IterationFunctor,
+template <class ExecutionSpace, unsigned long Dims, class IterationFunctor,
           class CompApproach, class CommApproach>
 template <std::size_t Blocks>
-void Solver<Dims, IterationFunctor, CompApproach, CommApproach>::step()
+void Solver<ExecutionSpace, Dims, IterationFunctor, CompApproach, CommApproach>::step()
   requires (std::same_as<Approach::Hierarchical<Blocks>, CompApproach>
                  && (std::same_as<Approach::Host, CommApproach> 
                      || std::same_as<Approach::Stream, CommApproach>))

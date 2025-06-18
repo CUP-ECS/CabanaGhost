@@ -88,7 +88,15 @@ class ProblemManager
     using grid_type = Cabana::Grid::LocalGrid<global_mesh_type>;
     using local_mesh_type = Cabana::Grid::LocalMesh<memory_space, global_mesh_type>;
     using exec_space = ExecutionSpace;
-    using halo_type = Cabana::Grid::Experimental::StreamHalo<exec_space, memory_space>;
+#if defined( Cabana_ENABLE_MPI_ADVANCE )
+  using halo_type = Cabana::Grid::Experimental::StreamHalo<exec_space, memory_space, Cabana::CommSpace::MpiAdvance>;
+#elif defined( CABANA_ENABLE_MPICH )
+  using halo_type = Cabana::Grid::Experimental::StreamHalo<exec_space, memory_space, Cabana::CommSpace::Mpich>;
+#elif defined( CABANA_ENABLE_CRAY_MPI )
+  using halo_type = Cabana::Grid::Experimental::StreamHalo<exec_space, memory_space, Cabana::CommSpace::CrayMpi>;
+#else
+  using halo_type = Cabana::Grid::Experimental::StreamHalo<exec_space, memory_space>;
+#endif
 
     template <class InitFunc>
     ProblemManager( const std::shared_ptr<grid_type>& local_grid,

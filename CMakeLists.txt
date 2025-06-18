@@ -40,7 +40,7 @@ endif()
 # find MPI ADVANCE Stream Triggering
 #Cabana_add_dependency( PACKAGE stream-triggering )
 #set_package_properties(stream-triggering PROPERTIES TYPE OPTIONAL PURPOSE "Stream Triggered Backend")
-if( Cabana_ENABLE_MPIADVANCE )
+if( Cabana_ENABLE_MPI_ADVANCE )
   find_package(stream-triggering REQUIRED)
   if(STREAM_TRIGGERING_FOUND)# AND Cabana_ENABLE_MPISTREAM)
   install(FILES

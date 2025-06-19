@@ -37,10 +37,11 @@ if(CLANG_FORMAT_FOUND)
     DEPENDS ${FORMAT_SOURCES})
 endif()
 
-# find MPI ADVANCE Stream Triggering
+# Find MPI ADVANCE Stream Triggering
+option(CabanaGhost_ENABLE_MPI_ADVANCE "Support MPI Advance backends, namely stream-triggering." OFF)
 #Cabana_add_dependency( PACKAGE stream-triggering )
 #set_package_properties(stream-triggering PROPERTIES TYPE OPTIONAL PURPOSE "Stream Triggered Backend")
-if( Cabana_ENABLE_MPI_ADVANCE )
+if( CabanaGhost_ENABLE_MPI_ADVANCE )
   find_package(stream-triggering REQUIRED)
   if(stream-triggering_FOUND)# AND Cabana_ENABLE_MPISTREAM)
   install(FILES

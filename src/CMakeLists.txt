@@ -5,6 +5,12 @@ set(DEPENDS_ON
   MPI::MPI_CXX
   )
 
+if( stream-triggering_FOUND )
+  list(APPEND DEPENDS_ON
+    stream-triggering
+  )
+endif()
+  
 add_executable( gol GOL.cpp )
 target_link_libraries( gol PRIVATE ${DEPENDS_ON} )
 install(TARGETS gol DESTINATION ${CMAKE_INSTALL_BINDIR})

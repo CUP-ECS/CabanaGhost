@@ -45,7 +45,7 @@ if( CabanaGhost_ENABLE_MPI_ADVANCE )
   find_package(stream-triggering REQUIRED)
   if(stream-triggering_FOUND)# AND Cabana_ENABLE_MPISTREAM)
   install(FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindStreamTriggering.cmake
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findstream-triggering.cmake
     DESTINATION ${CMAKE_INSTALL_PREFIX} )
   endif()
 endif()

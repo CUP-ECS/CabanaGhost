@@ -86,7 +86,7 @@ class Solver
     void setup()
     {
         /* Halo the source array to get values from neighboring processes */
-        _pm->gather( Version::Current() );
+        _pm->enqueueGather( Version::Current() );
     }
 
 

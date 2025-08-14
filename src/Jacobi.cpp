@@ -18,6 +18,7 @@
 #include <Cabana_Grid.hpp>
 
 #include <mpi.h>
+#include <stream-triggering.h>
 
 // And now 
 #include "Solver.hpp"
@@ -236,13 +237,12 @@ struct JacobiFunctor {
 int main( int argc, char* argv[] )
 {
     MPI_Init( &argc, &argv );         // Initialize MPI
+    MPIS_Hello_world();
     Kokkos::initialize( argc, argv ); // Initialize Kokkos
-
     // MPI Info
     int comm_size, rank;
     MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); // Number of Ranks
     MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // My Rank
-
     // Parse Input
     ClArgs cl;
     if ( parseInput( rank, argc, argv, cl ) != 0 )
@@ -271,6 +271,7 @@ int main( int argc, char* argv[] )
                   << "\n"; // Steps between write
         std::cout << "====================================\n";
     }
+
     Kokkos::Timer timer;
     {
         using namespace CabanaGhost;

@@ -30,7 +30,7 @@ namespace CabanaGhost
  * @class SiloWriter
  * @brief SiloWriter class to write results to Silo file using PMPIO
  **/
-template <unsigned long Dims>
+template <class ProblemManager, unsigned long Dims>
 class SiloWriter
 {
   public:
@@ -38,7 +38,7 @@ class SiloWriter
     using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using exec_type = Kokkos::DefaultExecutionSpace;
-    using pm_type = ProblemManager<exec_type, Dims>;
+    using pm_type = ProblemManager;
     using device_type = typename exec_type::device_type;
     /**
      * Constructor

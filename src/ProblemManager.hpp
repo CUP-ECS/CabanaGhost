@@ -77,7 +77,7 @@ struct Liveness
  * @brief ProblemManager class to store the mesh and state values, and
  * to perform gathers and scatters in the approprate number of dimensions.
  **/
-template <class ExecutionSpace, unsigned long Dims>
+template <class ExecutionSpace, class CommunicationSpace, unsigned long Dims>
 class ProblemManager
 {
   public:
@@ -88,15 +88,8 @@ class ProblemManager
     using grid_type = Cabana::Grid::LocalGrid<global_mesh_type>;
     using local_mesh_type = Cabana::Grid::LocalMesh<memory_space, global_mesh_type>;
     using exec_space = ExecutionSpace;
-#if defined( Cabana_ENABLE_MPI_ADVANCE )
-  using halo_type = Cabana::Grid::Experimental::StreamHalo<exec_space, memory_space, Cabana::CommSpace::MpiAdvance>;
-#elif defined( CABANA_ENABLE_MPICH )
-  using halo_type = Cabana::Grid::Experimental::StreamHalo<exec_space, memory_space, Cabana::CommSpace::Mpich>;
-#elif defined( CABANA_ENABLE_CRAY_MPI )
-  using halo_type = Cabana::Grid::Experimental::StreamHalo<exec_space, memory_space, Cabana::CommSpace::CrayMpi>;
-#else
-  using halo_type = Cabana::Grid::Experimental::StreamHalo<exec_space, memory_space>;
-#endif
+    using comm_space = CommunicationSpace;
+    using halo_type = Cabana::Grid::Experimental::StreamHalo<exec_space, memory_space, comm_space>;
 
     template <class InitFunc>
     ProblemManager( const std::shared_ptr<grid_type>& local_grid,

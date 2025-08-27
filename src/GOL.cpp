@@ -38,7 +38,7 @@ using namespace Cabana::Grid;
 // Short Args: n - Cell Count
 // x - On-node Parallelism ( Serial/Threaded/OpenMP/CUDA ),
 // t - Time Steps, F - Write Frequency
-static char* shortargs = (char*)"n:t:x:F:h";
+static char* shortargs = (char*)"n:t:x:F:c:h";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -46,6 +46,7 @@ static option longargs[] = {
     { "timesteps", required_argument, NULL, 't' },
     { "driver", required_argument, NULL, 'x' },
     { "write-freq", required_argument, NULL, 'F' },
+    { "comm-space", required_argument, NULL, 'c' },
     { "help", no_argument, NULL, 'j' },
     { 0, 0, 0, 0 } };
 
@@ -57,8 +58,9 @@ static option longargs[] = {
 struct ClArgs
 {
     std::array<int, 2> global_num_cells;          /**< Number of cells */
-    int t_final; /**< Ending time */
-    int write_freq;     /**< Write frequency */
+    int t_final;            /**< Ending time */
+    int write_freq;         /**< Write frequency */
+    std::string comm_space; /**< Which communication backend to use */
 };
 
 /**
@@ -78,6 +80,8 @@ void help( const int rank, char* progname )
                   << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-F" << std::setw( 40 )
                   << "Write Frequency (default 20)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-c" << std::setw( 40 )
+                  << "Communication Space (default mpi)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-h" << std::setw( 40 )
                   << "Print Help Message" << std::left << "\n";
     }
@@ -101,6 +105,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.t_final = 100;
     cl.write_freq = 0;
     cl.global_num_cells = { 128, 128 };
+    cl.comm_space = "mpi";
 
     int ch;
     // Now parse any arguments
@@ -145,6 +150,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 }
                 exit( -1 );
             }
+            break;
+        case 'c':
+            cl.comm_space = optarg;
             break;
         case 'h':
             help( rank, argv[0] );
@@ -261,19 +269,19 @@ int main( int argc, char* argv[] )
     }
     
     Kokkos::Timer timer;
+
+    // Instantiate a solver for all valid communication spaces so we can select which to use
+    // dynamically at runtime.
     // Call advection solver - put in a seperate scope so contained view object
     // leaves scope before we shutdown.
     {
 	using namespace CabanaGhost;
         MeshInitFunc initializer;
         GOL2DFunctor gol2Dfunctor;
-        // We use the stream triggered version here since we don't need convergence
-        // checks. As a result, the entire compute process is just enqueued to a stream
-        // if there's no I/O.
-        Solver<Kokkos::DefaultExecutionSpace, 2, GOL2DFunctor, 
-               Approach::Flat, Approach::Stream> 
-            solver( cl.global_num_cells, true, gol2Dfunctor, initializer );
-        solver.solve(cl.t_final, 0.0, cl.write_freq); 
+	auto solver = 
+            createHaloSolver<Kokkos::DefaultExecutionSpace, 2, Approach::Flat, 
+                Approach::Stream>(cl.global_num_cells, true, cl.comm_space, gol2Dfunctor, initializer );
+        solver->solve(cl.t_final, 0.0, cl.write_freq); 
     }
     if ( rank == 0 )
       {

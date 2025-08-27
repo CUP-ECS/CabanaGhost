@@ -18,7 +18,7 @@
 #include <Cabana_Grid.hpp>
 
 #include <mpi.h>
-#include <stream-triggering.h>
+//#include <stream-triggering.h>
 
 // And now 
 #include "Solver.hpp"
@@ -39,7 +39,7 @@ using namespace Cabana::Grid;
 // Short Args: n - Cell Count
 // x - On-node Parallelism ( Serial/Threaded/OpenMP/CUDA ),
 // t - Time Steps, F - Write Frequency
-static char* shortargs = (char*)"n:m:t:F:h";
+static char* shortargs = (char*)"n:m:t:F:c:h";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -47,6 +47,7 @@ static option longargs[] = {
     { "max-iterations", required_argument, NULL, 'm' },
     { "tolerance", required_argument, NULL, 't' },
     { "write-freq", required_argument, NULL, 'F' },
+    { "comm-space", required_argument, NULL, 'c' },
     { "help", no_argument, NULL, 'h' },
     { 0, 0, 0, 0 } };
 
@@ -62,6 +63,7 @@ struct ClArgs
     int max_iterations; /**< Ending time */
     double tolerance;       /**< Convergence criteria */
     int write_freq;      /**< Write frequency */
+    std::string comm_space;
 };
 
 /**
@@ -84,6 +86,8 @@ void help( const int rank, char* progname )
                   << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-F" << std::setw( 40 )
                   << "Write Frequency (default 20)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-c" << std::setw( 40 )
+                  << "Communication Space (default mpi)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-h" << std::setw( 40 )
                   << "Print Help Message" << std::left << "\n";
     }
@@ -108,6 +112,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.write_freq = 0;
     cl.global_num_cells = { 64, 64, 64 };
     cl.tolerance = 0.001;
+    cl.comm_space = "mpi";
 
     int ch;
     // Now parse any arguments
@@ -165,6 +170,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 }
                 exit( -1 );
             }
+            break;
+        case 'c':
+            cl.comm_space = optarg;
             break;
         case 'h':
             help( rank, argv[0] );
@@ -237,7 +245,7 @@ struct JacobiFunctor {
 int main( int argc, char* argv[] )
 {
     MPI_Init( &argc, &argv );         // Initialize MPI
-    MPIS_Hello_world();
+    //MPIS_Hello_world();
     Kokkos::initialize( argc, argv ); // Initialize Kokkos
     // MPI Info
     int comm_size, rank;
@@ -279,10 +287,10 @@ int main( int argc, char* argv[] )
         MeshInitFunc initializer;
         JacobiFunctor iteration_functor;
 	// set Approach to Stream if using stream-triggering
-        Solver<Kokkos::DefaultExecutionSpace, 3, JacobiFunctor, 
-               Approach::Flat, Approach::Stream> 
-            solver(cl.global_num_cells, false, iteration_functor, initializer );
-        solver.solve(cl.max_iterations, cl.tolerance, cl.write_freq);
+        auto solver =
+            createHaloSolver<Kokkos::DefaultExecutionSpace, 3, Approach::Flat,
+                Approach::Stream>(cl.global_num_cells, false, cl.comm_space, iteration_functor, initializer );
+        solver->solve(cl.max_iterations, cl.tolerance, cl.write_freq);
     }
     if ( rank == 0 )
       {

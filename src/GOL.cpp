@@ -261,26 +261,31 @@ int main( int argc, char* argv[] )
     }
     
     Kokkos::Timer timer;
+    double t0, t1, t2;
     // Call advection solver - put in a seperate scope so contained view object
     // leaves scope before we shutdown.
     {
-	using namespace CabanaGhost;
+        using namespace CabanaGhost;
         MeshInitFunc initializer;
         GOL2DFunctor gol2Dfunctor;
         // We use the stream triggered version here since we don't need convergence
         // checks. As a result, the entire compute process is just enqueued to a stream
         // if there's no I/O.
-        Solver<Kokkos::DefaultExecutionSpace, 2, GOL2DFunctor, 
-               Approach::Flat, Approach::Stream> 
+        t0 = timer.seconds();
+        Solver<Kokkos::DefaultExecutionSpace, 2, GOL2DFunctor,
+               Approach::Flat, Approach::Stream>
             solver( cl.global_num_cells, true, gol2Dfunctor, initializer );
-        solver.solve(cl.t_final, 0.0, cl.write_freq); 
+        t1 = timer.seconds();
+        solver.solve(cl.t_final, 0.0, cl.write_freq);
+        t2 = timer.seconds();
     }
     if ( rank == 0 )
       {
-	double time = timer.seconds();
-	std::cout << "Solver time: " << time << std::endl;
+        std::cout << "Solver creation time: " << (t1 - t0) << std::endl;
+        std::cout << "Solver solve time: " << (t2 - t1) << std::endl;
       }
     // Shut things down
+
     Kokkos::finalize(); // Finalize Kokkos
     MPI_Finalize();     // Finalize MPI
 

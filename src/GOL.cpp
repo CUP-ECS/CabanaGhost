@@ -286,7 +286,7 @@ int main( int argc, char* argv[] )
             createHaloSolver<Kokkos::DefaultExecutionSpace, 2, Approach::Flat, 
                 Approach::Stream>(cl.global_num_cells, true, cl.comm_space, gol2Dfunctor, initializer );
         t1 = timer.seconds();
-        solver.solve(cl.t_final, 0.0, cl.write_freq);
+        solver->solve(cl.t_final, 0.0, cl.write_freq);
         t2 = timer.seconds();
     }
     if ( rank == 0 )

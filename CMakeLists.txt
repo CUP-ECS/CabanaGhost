@@ -36,16 +36,3 @@ if(CLANG_FORMAT_FOUND)
     COMMAND ${CLANG_FORMAT_EXECUTABLE} -i -style=file ${FORMAT_SOURCES}
     DEPENDS ${FORMAT_SOURCES})
 endif()
-
-# Find MPI ADVANCE Stream Triggering
-option(CabanaGhost_ENABLE_MPI_ADVANCE "Support MPI Advance backends, namely stream-triggering." OFF)
-#Cabana_add_dependency( PACKAGE stream-triggering )
-#set_package_properties(stream-triggering PROPERTIES TYPE OPTIONAL PURPOSE "Stream Triggered Backend")
-if( CabanaGhost_ENABLE_MPI_ADVANCE )
-  find_package(stream-triggering REQUIRED)
-  if(stream-triggering_FOUND)# AND Cabana_ENABLE_MPISTREAM)
-  install(FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findstream-triggering.cmake
-    DESTINATION ${CMAKE_INSTALL_PREFIX} )
-  endif()
-endif()

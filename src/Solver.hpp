@@ -38,13 +38,23 @@ namespace Approach {
 
 //---------------------------------------------------------------------------//
 
-template <class ExecutionSpace, unsigned long Dims, class IterationFunctor, class CompApproach, class CommApproach>
-class Solver 
+// A base class to use for the solver that abstracts away the template arguments and 
+// in particular the specific communication backend being used.
+class SolverBase
+{
+  public: 
+    virtual ~SolverBase() = default;
+    virtual void solve( const int t_max, const double tol = 0.0, const int write_freq = 0) = 0;
+};
+
+template <class ExecutionSpace, class CommunicationSpace, unsigned long Dims, class IterationFunctor, class CompApproach, class CommApproach>
+class Solver : public SolverBase
 {
   public:
     using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
     using execution_space = ExecutionSpace;
-    using pm_type = ProblemManager<ExecutionSpace, Dims>;
+    using communication_space = CommunicationSpace;
+    using pm_type = ProblemManager<ExecutionSpace, CommunicationSpace, Dims>;
     using array_type = typename pm_type::cell_array_type;
     using view_type = typename array_type::view_type;
 
@@ -77,10 +87,10 @@ class Solver
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, 1 );
 
         // Create a problem manager to manage mesh state
-        _pm = std::make_unique<ProblemManager<execution_space, Dims>>( _local_grid, create_functor );
+        _pm = std::make_unique<ProblemManager<execution_space, communication_space, Dims>>( _local_grid, create_functor );
 
         // Set up Silo for I/O
-        _silo = std::make_unique<SiloWriter<Dims>>( *_pm );
+        _silo = std::make_unique<SiloWriter<pm_type, Dims>>( *_pm );
     }
 
     void setup()
@@ -91,7 +101,7 @@ class Solver
 
 
     /* Now the various versions of code to actually compute/communicate 
-     * a timestep. These are conditional on the computataional approach being
+     * a timestep. These are conditional on the computational approach being
      * used. */
     void step() requires (std::same_as<Approach::Flat, CompApproach> 
                           && (std::same_as<Approach::Host, CommApproach>
@@ -155,7 +165,7 @@ class Solver
         return max < tol;
     } 
 
-    void solve( const int t_max, const double tol = 0.0, const int write_freq = 0)
+    virtual void solve( const int t_max, const double tol = 0.0, const int write_freq = 0) override
     {
         int t = 0;
         int rank;
@@ -201,13 +211,14 @@ class Solver
     
     std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
     IterationFunctor& _iter_func; // XXX Actually define this class some time
-    std::unique_ptr<ProblemManager<execution_space, Dims>> _pm;
-    std::unique_ptr<SiloWriter<Dims>> _silo;
+    std::unique_ptr<ProblemManager<execution_space, communication_space, Dims>> _pm;
+    std::unique_ptr<SiloWriter<pm_type, Dims>> _silo;
 };
 
-template <class ExecutionSpace, unsigned long Dims, class IterationFunctor,
+template <class ExecutionSpace, class CommunicationSpace, 
+          unsigned long Dims, class IterationFunctor,
           class CompApproach, class CommApproach>
-void Solver<ExecutionSpace, Dims, IterationFunctor, CompApproach, CommApproach>::step()
+void Solver<ExecutionSpace, CommunicationSpace, Dims, IterationFunctor, CompApproach, CommApproach>::step()
     requires (std::same_as<Approach::Flat, CompApproach> 
               && (std::same_as<Approach::Host, CommApproach> 
                   || std::same_as<Approach::Stream, CommApproach>))
@@ -249,10 +260,11 @@ void Solver<ExecutionSpace, Dims, IterationFunctor, CompApproach, CommApproach>:
     _time++;
 }
 
-template <class ExecutionSpace, unsigned long Dims, class IterationFunctor,
+template <class ExecutionSpace, class CommunicationSpace,
+          unsigned long Dims, class IterationFunctor,
           class CompApproach, class CommApproach>
 template <std::size_t Blocks>
-void Solver<ExecutionSpace, Dims, IterationFunctor, CompApproach, CommApproach>::step()
+void Solver<ExecutionSpace, CommunicationSpace, Dims, IterationFunctor, CompApproach, CommApproach>::step()
   requires (std::same_as<Approach::Hierarchical<Blocks>, CompApproach>
                  && (std::same_as<Approach::Host, CommApproach> 
                      || std::same_as<Approach::Stream, CommApproach>))
@@ -274,7 +286,7 @@ void Solver<ExecutionSpace, Dims, IterationFunctor, CompApproach, CommApproach>:
     // 1. Determine the number of teams in the league (the league size), based on the block size 
     // we want to communicate in each dimension. Start assuming square blocks.
     int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
-    int blocks_per_dim = 2;
+    int blocks_per_dim = Blocks;
     int block_size = (iextent + blocks_per_dim - 1)/blocks_per_dim;
     int league_size = blocks_per_dim * blocks_per_dim;
     int istart = own_cells.min(0), jstart = own_cells.min(1);
@@ -308,7 +320,7 @@ void Solver<ExecutionSpace, Dims, IterationFunctor, CompApproach, CommApproach>:
 
         // 3. Finally, any team-specific operations that need the block to be completed
         // can be done by using a team_barrier, for example block-specific communication. 
-        // None is needed here since all communication is host-driven.
+        // None is needed here since all communication is host or stream driven.
         // team_member.team_barrier();
     });
 
@@ -325,6 +337,50 @@ void Solver<ExecutionSpace, Dims, IterationFunctor, CompApproach, CommApproach>:
     _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
     _time++;
 }
+
+template <class ExecutionSpace, int Dims, class CompApproach, class CommApproach, 
+          class IterationFunc, class InitFunc>
+std::shared_ptr<SolverBase>
+createHaloSolver( std::array<int, Dims> global_num_cells, bool periodic, 
+		  std::string comm_backend, IterationFunc halo, InitFunc initializer)
+{
+    if (comm_backend.compare("mpi") == 0) {
+        return std::make_shared<
+            Solver<ExecutionSpace, Cabana::CommSpace::Mpi, Dims, IterationFunc,
+		CompApproach, CommApproach>>(
+                global_num_cells, periodic, halo, initializer);
+    } else if (comm_backend.compare("mpi-advance") == 0) {
+#ifdef Cabana_ENABLE_MPI_ADVANCE
+        return std::make_shared<
+            Solver<ExecutionSpace, Cabana::CommSpace::MpiAdvance,  IterationFunc,
+		CompApproach, CommApproach>>(
+                    global_num_cells, periodic, halo, initializer);
+#else
+        throw std::runtime_error( "MPI Advance Backend Not Enabled" );
+#endif
+    } else if (comm_backend.compare("mpich") == 0) {
+#ifdef Cabana_ENABLE_MPICH
+        return std::make_shared<
+            Solver<ExecutionSpace, Cabana::CommSpace::Mpich, Dims, IterationFunc,
+		CompApproach, CommApproach>>(
+                global_num_cells, periodic, halo, initializer);
+#else
+        throw std::runtime_error( "MPICH Backend Not Enabled" );
+#endif
+    } else if (comm_backend.compare("cray-mpi") == 0) {
+#ifdef Cabana_ENABLE_MPICH
+        return std::make_shared<
+            Solver<ExecutionSpace, Cabana::CommSpace::CrayMpi, Dims, IterationFunc,
+		CompApproach, CommApproach>>(
+                global_num_cells, periodic, halo, initializer);
+#else
+        throw std::runtime_error( "Cray MPI Backend Not Enabled" );
+#endif
+    } else {
+        throw std::runtime_error("invalid communication backed");
+        return nullptr;
+    }
+} 
 //---------------------------------------------------------------------------//
 
 } // end namespace CabanaGhost

@@ -262,6 +262,8 @@ int main( int argc, char* argv[] )
                   << "\n"; // Number of Cells
         std::cout << std::left << std::setw( 20 ) << "Total Simulation Time"
                   << ": " << std::setw( 8 ) << cl.t_final << "\n";
+        std::cout << std::left << std::setw( 20 ) << "Communication Backend"
+                  << ": " << std::setw( 8 ) << cl.comm_space << "\n";
         std::cout << std::left << std::setw( 20 ) << "Write Frequency"
                   << ": " << std::setw( 8 ) << cl.write_freq
                   << "\n"; // Steps between write
@@ -269,26 +271,31 @@ int main( int argc, char* argv[] )
     }
     
     Kokkos::Timer timer;
-
-    // Instantiate a solver for all valid communication spaces so we can select which to use
-    // dynamically at runtime.
+    double t0, t1, t2;
     // Call advection solver - put in a seperate scope so contained view object
     // leaves scope before we shutdown.
     {
-	using namespace CabanaGhost;
+        using namespace CabanaGhost;
         MeshInitFunc initializer;
         GOL2DFunctor gol2Dfunctor;
+        // We use the stream triggered version here since we don't need convergence
+        // checks. As a result, the entire compute process is just enqueued to a stream
+        // if there's no I/O.
+        t0 = timer.seconds();
 	auto solver = 
             createHaloSolver<Kokkos::DefaultExecutionSpace, 2, Approach::Flat, 
                 Approach::Stream>(cl.global_num_cells, true, cl.comm_space, gol2Dfunctor, initializer );
-        solver->solve(cl.t_final, 0.0, cl.write_freq); 
+        t1 = timer.seconds();
+        solver->solve(cl.t_final, 0.0, cl.write_freq);
+        t2 = timer.seconds();
     }
     if ( rank == 0 )
       {
-	double time = timer.seconds();
-	std::cout << "Solver time: " << time << std::endl;
+        std::cout << "Solver creation time: " << (t1 - t0) << std::endl;
+        std::cout << "Solver solve time: " << (t2 - t1) << std::endl;
       }
     // Shut things down
+
     Kokkos::finalize(); // Finalize Kokkos
     MPI_Finalize();     // Finalize MPI
 

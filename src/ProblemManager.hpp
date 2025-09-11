@@ -115,7 +115,7 @@ class ProblemManager
         // First we create the generic halo pattern itself which can
         // handle non-persistent halos 
         int halo_depth = _local_grid->haloCellWidth();
-        _halo = Cabana::Grid::Experimental::createStreamHalo( exec_space(), 
+        _halo = Cabana::Grid::Experimental::createStreamHalo<comm_space>( exec_space(), 
             Cabana::Grid::NodeHaloPattern<Dims>(), halo_depth, 
             *_liveness_curr );
 

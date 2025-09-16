@@ -125,6 +125,15 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 }
                 exit( -1 );
             }
+	    if( cl.global_num_cells[0] % 8 != 0 )
+	      {
+		if ( rank == 0)
+		  {
+		    std::cerr << "N must be a multiple of 8.\n";
+		    help(rank, argv[0] );
+		  }
+		exit( -1 );
+	      }
             cl.global_num_cells[1] = cl.global_num_cells[0];
             break;
         case 't':
@@ -185,13 +194,13 @@ struct MeshInitFunc
     {
         int i = coords[0], j = coords[1];
         double liveness;
-        /* We put a glider the in the middle of every 10 x 10 block. */
-        switch ((i % 10) * 10 + j % 10) {
-          case 33:
-          case 34:
-          case 44:
-          case 45:
-          case 53:
+        /* We put a glider the in the middle of every 8 x 8 block. */
+        switch ((i % 8) * 8 + j % 8) {
+          case 033:
+          case 034:
+          case 044:
+          case 045:
+          case 053:
             return 1.0; 
             break;
           default:

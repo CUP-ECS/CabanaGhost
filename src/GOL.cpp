@@ -280,7 +280,8 @@ int main( int argc, char* argv[] )
     }
     
     Kokkos::Timer timer;
-    double t0, t1, t2;
+    double t0, t1, t2, t3;
+    double sum1, sum2  = 0;
     // Call advection solver - put in a seperate scope so contained view object
     // leaves scope before we shutdown.
     {
@@ -294,14 +295,24 @@ int main( int argc, char* argv[] )
 	auto solver = 
             createHaloSolver<Kokkos::DefaultExecutionSpace, 2, Approach::Flat, 
                 Approach::Stream>(cl.global_num_cells, true, cl.comm_space, gol2Dfunctor, initializer );
-        t1 = timer.seconds();
+	t1 = timer.seconds();
+	sum1 = solver->computeSum();
+	t2 = timer.seconds();
         solver->solve(cl.t_final, 0.0, cl.write_freq);
-        t2 = timer.seconds();
+        t3 = timer.seconds();
+	sum2 = solver->computeSum();
     }
+    if( sum1 != sum2)
+      {
+	std::cout << std::format("First Sum: {:.2f} does not equal {:.2f}", sum1, sum2) << std::endl;
+	exit(-1);
+      }
     if ( rank == 0 )
       {
+	//std::cout << std::format("First Sum: {:.2f}", sum1) << std::endl;
+	//std::cout << std::format("Second Sum: {:.2f}", sum2) << std::endl;
         std::cout << "Solver creation time: " << (t1 - t0) << std::endl;
-        std::cout << "Solver solve time: " << (t2 - t1) << std::endl;
+        std::cout << "Solver solve time: " << (t3 - t2) << std::endl;
       }
     // Shut things down
 

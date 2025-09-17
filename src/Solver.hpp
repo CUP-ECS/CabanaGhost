@@ -45,6 +45,7 @@ class SolverBase
   public: 
     virtual ~SolverBase() = default;
     virtual void solve( const int t_max, const double tol = 0.0, const int write_freq = 0) = 0;
+    virtual double computeSum() = 0;
 };
 
 template <class ExecutionSpace, class CommunicationSpace, unsigned long Dims, class IterationFunctor, class CompApproach, class CommApproach>
@@ -163,8 +164,55 @@ class Solver : public SolverBase
         MPI_Allreduce(MPI_IN_PLACE, &max, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
         return max < tol;
-    } 
+    }
 
+  struct LivenessCheck
+    {
+      view_type _liveness;
+
+      KOKKOS_INLINE_FUNCTION void
+      operator() (const int i, const int j, const int k, double& sum) const
+	  requires (Dims == 3)
+        {
+	  sum += _liveness(i, j, k, 0);
+        }
+      
+      KOKKOS_INLINE_FUNCTION void
+        operator() (const int i, const int j, double& sum) const
+	  requires (Dims == 2)
+        {
+	  sum += _liveness(i, j, 0);
+        }
+
+        LivenessCheck(view_type liveness)
+	  : _liveness(liveness)
+      {}
+    };
+
+    virtual double computeSum( ) override
+    {
+        auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
+	
+        auto exec_space = execution_space();
+        auto liveness = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
+                                  Version::Current() ).view();
+        // Iterate over the space of indexes we own and apply the 
+        // functor in parallel to that space to calculate the 
+        // output data
+        //SumDifferenceFunctor mdf(src_view, dst_view);
+	LivenessCheck lc(liveness);
+        double sum = 0;
+        Cabana::Grid::grid_parallel_reduce("CabanaGhost Convergence Reduction",
+            exec_space, own_cells, lc, sum);
+
+        exec_space.fence();
+
+        // XXX We need to figure out an interface for this that is generalizable.
+        MPI_Allreduce(MPI_IN_PLACE, &sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+        return sum;
+    } 
+  
     virtual void solve( const int t_max, const double tol = 0.0, const int write_freq = 0) override
     {
         int t = 0;

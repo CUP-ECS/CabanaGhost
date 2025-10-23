@@ -38,7 +38,6 @@ class SiloWriter
     using mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
     using grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using pm_type = ProblemManager<Dims>;
-    using device_type = typename Kokkos::DefaultExecutionSpace::device_type;
     /**
      * Constructor
      * Create new SiloWriter
@@ -55,7 +54,7 @@ class SiloWriter
     using view_data_type = std::conditional_t<
         3 == Dims, value_type****, std::conditional_t<2 == Dims, value_type***, void>>;
     using owned_view_type = Kokkos::View<view_data_type, Kokkos::LayoutLeft, 
-        typename pm_type::cell_array_type::device_type>;
+        typename pm_type::cell_array_type::memory_space>;
     owned_view_type allocateOwnedArray(Cabana::Grid::IndexSpace<Dims> d)
         requires (Dims == 3)
     {

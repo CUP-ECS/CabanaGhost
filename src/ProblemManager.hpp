@@ -85,7 +85,6 @@ class ProblemManager
   public:
     using global_mesh_type = Cabana::Grid::UniformMesh<double, Dims>;
     using cell_array_type = Cabana::Grid::Array<double, Cabana::Grid::Cell, global_mesh_type>;
-    using device_type = typename cell_array_type::device_type;
     using memory_space = typename cell_array_type::memory_space;
     using view_type = typename cell_array_type::view_type;
     using grid_type = Cabana::Grid::LocalGrid<global_mesh_type>;

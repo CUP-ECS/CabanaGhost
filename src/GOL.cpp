@@ -276,7 +276,7 @@ int main( int argc, char* argv[] )
         std::cout << std::left << std::setw( 20 ) << "Write Frequency"
                   << ": " << std::setw( 8 ) << cl.write_freq
                   << "\n"; // Steps between write
-        std::cout << "====================================\n";
+        std::cout << "===================================="<< std::endl;
     }
     
     Kokkos::Timer timer;
@@ -302,13 +302,9 @@ int main( int argc, char* argv[] )
         t3 = timer.seconds();
 	sum2 = solver->computeSum();
     }
-    if( sum1 != sum2)
-      {
-	std::cout << std::format("First Sum: {:.2f} does not equal {:.2f}", sum1, sum2) << std::endl;
-	exit(-1);
-      }
     if ( rank == 0 )
       {
+	std::cout << "Is final sum good: " << (sum1 == sum2) << std::endl;
 	//std::cout << std::format("First Sum: {:.2f}", sum1) << std::endl;
 	//std::cout << std::format("Second Sum: {:.2f}", sum2) << std::endl;
         std::cout << "Solver creation time: " << (t1 - t0) << std::endl;

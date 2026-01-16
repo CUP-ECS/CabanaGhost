@@ -12,8 +12,8 @@
 #ifndef CABANAGHOST_SOLVER_HPP
 #define CABANAGHOST_SOLVER_HPP
 
-#include <Kokkos_Core.hpp>
 #include <Cabana_Grid.hpp>
+#include <Kokkos_Core.hpp>
 
 #include "ProblemManager.hpp"
 #include "SiloWriter.hpp"
@@ -28,27 +28,41 @@ namespace CabanaGhost
 {
 
 //---------------------------------------------------------------------------//
-namespace Approach {
-  struct Flat {};
-  template <std::size_t Blocks> struct Hierarchical {}; // XXX should this be number of blocks or tile size?
-  struct Host {};
-  struct Stream {};
-  struct Kernel {};
+namespace Approach
+{
+struct Flat
+{
+};
+template <std::size_t Blocks>
+struct Hierarchical
+{
+}; // XXX should this be number of blocks or tile size?
+struct Host
+{
+};
+struct Stream
+{
+};
+struct Kernel
+{
+};
 } // namespace Approach
 
 //---------------------------------------------------------------------------//
 
-// A base class to use for the solver that abstracts away the template arguments and 
-// in particular the specific communication backend being used.
+// A base class to use for the solver that abstracts away the template arguments
+// and in particular the specific communication backend being used.
 class SolverBase
 {
-  public: 
+  public:
     virtual ~SolverBase() = default;
-    virtual void solve( const int t_max, const double tol = 0.0, const int write_freq = 0) = 0;
+    virtual void solve( const int t_max, const double tol = 0.0,
+                        const int write_freq = 0 ) = 0;
     virtual double computeSum() = 0;
 };
 
-template <class ExecutionSpace, class CommunicationSpace, unsigned long Dims, class IterationFunctor, class CompApproach, class CommApproach>
+template <class ExecutionSpace, class CommunicationSpace, unsigned long Dims,
+          class IterationFunctor, class CompApproach, class CommApproach>
 class Solver : public SolverBase
 {
   public:
@@ -60,9 +74,11 @@ class Solver : public SolverBase
     using view_type = typename array_type::view_type;
 
     template <class InitFunc>
-    Solver( const std::array<int, Dims> & global_num_cells, bool periodic, 
-            IterationFunctor& iteration_functor, const InitFunc& create_functor ) 
-        : _time( 0 ), _iter_func(iteration_functor)
+    Solver( const std::array<int, Dims>& global_num_cells, bool periodic,
+            IterationFunctor& iteration_functor,
+            const InitFunc& create_functor )
+        : _time( 0 )
+        , _iter_func( iteration_functor )
     {
         // Create a local grid describing our data layout
         // Create global mesh bounds.
@@ -73,22 +89,24 @@ class Solver : public SolverBase
             global_high_corner[d] = global_num_cells[d];
         }
         auto global_mesh = Cabana::Grid::createUniformGlobalMesh(
-                               global_low_corner, global_high_corner, global_num_cells );
+            global_low_corner, global_high_corner, global_num_cells );
 
         // Build the mesh partitioner and global grid.
         std::array<bool, Dims> p;
-        for (int d = 0; d < Dims; ++d) 
+        for ( int d = 0; d < Dims; ++d )
         {
             p[d] = periodic;
         }
         Cabana::Grid::DimBlockPartitioner<Dims> partitioner;
-        auto global_grid = Cabana::Grid::createGlobalGrid( MPI_COMM_WORLD, global_mesh,
-                               p, partitioner );
-        // Build the local grid. 
+        auto global_grid = Cabana::Grid::createGlobalGrid(
+            MPI_COMM_WORLD, global_mesh, p, partitioner );
+        // Build the local grid.
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, 1 );
 
         // Create a problem manager to manage mesh state
-        _pm = std::make_unique<ProblemManager<execution_space, communication_space, Dims>>( _local_grid, create_functor );
+        _pm = std::make_unique<
+            ProblemManager<execution_space, communication_space, Dims>>(
+            _local_grid, create_functor );
 
         // Set up Silo for I/O
         _silo = std::make_unique<SiloWriter<pm_type, Dims>>( *_pm );
@@ -100,128 +118,145 @@ class Solver : public SolverBase
         _pm->enqueueGather( Version::Current() );
     }
 
-
-    /* Now the various versions of code to actually compute/communicate 
+    /* Now the various versions of code to actually compute/communicate
      * a timestep. These are conditional on the computational approach being
      * used. */
-    void step() requires (std::same_as<Approach::Flat, CompApproach> 
-                          && (std::same_as<Approach::Host, CommApproach>
-                              || std::same_as<Approach::Stream, CommApproach>));
+    void step()
+        requires( std::same_as<Approach::Flat, CompApproach> &&
+                  (std::same_as<Approach::Host, CommApproach> ||
+                   std::same_as<Approach::Stream, CommApproach>));
 
     template <std::size_t Blocks>
-    void step() requires (std::same_as<Approach::Hierarchical<Blocks>, CompApproach>
-                          && (std::same_as<Approach::Host, CommApproach>
-                              || std::same_as<Approach::Stream, CommApproach>));
+    void step()
+        requires( std::same_as<Approach::Hierarchical<Blocks>, CompApproach> &&
+                  (std::same_as<Approach::Host, CommApproach> ||
+                   std::same_as<Approach::Stream, CommApproach>));
 
     struct MaxDifferenceFunctor
     {
         view_type _v1, _v2;
 
-        KOKKOS_INLINE_FUNCTION void
-        operator() (const int i, const int j, const int k, double& max) const
-            requires (Dims == 3)
+        KOKKOS_INLINE_FUNCTION void operator()( const int i, const int j,
+                                                const int k, double& max ) const
+            requires( Dims == 3 )
         {
-            double diff = _v2(i, j, k, 0) - _v1(i, j, k, 0);
+            double diff = _v2( i, j, k, 0 ) - _v1( i, j, k, 0 );
             diff = diff < 0.0 ? -diff : diff;
-            if (diff > max) max = diff;
+            if ( diff > max )
+                max = diff;
         }
 
-        KOKKOS_INLINE_FUNCTION void
-        operator() (const int i, const int j, double& max) const
-            requires (Dims == 2)
+        KOKKOS_INLINE_FUNCTION void operator()( const int i, const int j,
+                                                double& max ) const
+            requires( Dims == 2 )
         {
-            double diff = _v2(i, j, 0) - _v1(i, j, 0);
+            double diff = _v2( i, j, 0 ) - _v1( i, j, 0 );
             diff = diff < 0.0 ? -diff : diff;
-            if (diff > max) max = diff;
+            if ( diff > max )
+                max = diff;
         }
 
-        MaxDifferenceFunctor(view_type v1, view_type v2)
-            : _v1(v1), _v2(v2)
-        {}
+        MaxDifferenceFunctor( view_type v1, view_type v2 )
+            : _v1( v1 )
+            , _v2( v2 )
+        {
+        }
     };
 
     bool checkConvergence( const double tol )
     {
-        auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
+        auto own_cells = _local_grid->indexSpace(
+            Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
-        auto src_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
-                                  Version::Current() ).view();
-        auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
-                                  Version::Next() ).view();
+        auto src_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(),
+                                  Version::Current() )
+                            .view();
+        auto dst_view =
+            _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() )
+                .view();
         auto exec_space = execution_space();
 
-        // Iterate over the space of indexes we own and apply the 
-        // functor in parallel to that space to calculate the 
+        // Iterate over the space of indexes we own and apply the
+        // functor in parallel to that space to calculate the
         // output data
-        MaxDifferenceFunctor mdf(src_view, dst_view);
+        MaxDifferenceFunctor mdf( src_view, dst_view );
         double max = 0;
-        Cabana::Grid::grid_parallel_reduce("CabanaGhost Convergence Reduction",
-            exec_space, own_cells, mdf, max);
+        Cabana::Grid::grid_parallel_reduce( "CabanaGhost Convergence Reduction",
+                                            exec_space, own_cells, mdf, max );
 
         exec_space.fence();
 
-        // XXX We need to figure out an interface for this that is generalizable.
-        MPI_Allreduce(MPI_IN_PLACE, &max, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+        // XXX We need to figure out an interface for this that is
+        // generalizable.
+        MPI_Allreduce( MPI_IN_PLACE, &max, 1, MPI_DOUBLE, MPI_MAX,
+                       MPI_COMM_WORLD );
 
         return max < tol;
     }
 
-  struct LivenessCheck
+    struct LivenessCheck
     {
-      view_type _liveness;
+        view_type _liveness;
 
-      KOKKOS_INLINE_FUNCTION void
-      operator() (const int i, const int j, const int k, double& sum) const
-	  requires (Dims == 3)
+        KOKKOS_INLINE_FUNCTION void operator()( const int i, const int j,
+                                                const int k, double& sum ) const
+            requires( Dims == 3 )
         {
-	  sum += _liveness(i, j, k, 0);
-        }
-      
-      KOKKOS_INLINE_FUNCTION void
-        operator() (const int i, const int j, double& sum) const
-	  requires (Dims == 2)
-        {
-	  sum += _liveness(i, j, 0);
+            sum += _liveness( i, j, k, 0 );
         }
 
-        LivenessCheck(view_type liveness)
-	  : _liveness(liveness)
-      {}
+        KOKKOS_INLINE_FUNCTION void operator()( const int i, const int j,
+                                                double& sum ) const
+            requires( Dims == 2 )
+        {
+            sum += _liveness( i, j, 0 );
+        }
+
+        LivenessCheck( view_type liveness )
+            : _liveness( liveness )
+        {
+        }
     };
 
-    virtual double computeSum( ) override
+    virtual double computeSum() override
     {
-        auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
-	
+        auto own_cells = _local_grid->indexSpace(
+            Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
+
         auto exec_space = execution_space();
-        auto liveness = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
-                                  Version::Current() ).view();
-        // Iterate over the space of indexes we own and apply the 
-        // functor in parallel to that space to calculate the 
+        auto liveness = _pm->get( Cabana::Grid::Cell(), Field::Liveness(),
+                                  Version::Current() )
+                            .view();
+        // Iterate over the space of indexes we own and apply the
+        // functor in parallel to that space to calculate the
         // output data
-        //SumDifferenceFunctor mdf(src_view, dst_view);
-	LivenessCheck lc(liveness);
+        // SumDifferenceFunctor mdf(src_view, dst_view);
+        LivenessCheck lc( liveness );
         double sum = 0;
-        Cabana::Grid::grid_parallel_reduce("CabanaGhost Convergence Reduction",
-            exec_space, own_cells, lc, sum);
+        Cabana::Grid::grid_parallel_reduce( "CabanaGhost Convergence Reduction",
+                                            exec_space, own_cells, lc, sum );
 
         exec_space.fence();
 
-        // XXX We need to figure out an interface for this that is generalizable.
-        MPI_Allreduce(MPI_IN_PLACE, &sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        // XXX We need to figure out an interface for this that is
+        // generalizable.
+        MPI_Allreduce( MPI_IN_PLACE, &sum, 1, MPI_DOUBLE, MPI_SUM,
+                       MPI_COMM_WORLD );
 
         return sum;
-    } 
-  
-    virtual void solve( const int t_max, const double tol = 0.0, const int write_freq = 0) override
+    }
+
+    virtual void solve( const int t_max, const double tol = 0.0,
+                        const int write_freq = 0 ) override
     {
         int t = 0;
         int rank;
         bool converged = false;
         auto exec_space = execution_space();
-        MPI_Comm_rank(_local_grid->globalGrid().comm(), &rank);
+        MPI_Comm_rank( _local_grid->globalGrid().comm(), &rank );
 
-        if (write_freq > 0) {
+        if ( write_freq > 0 )
+        {
             _silo->siloWrite( strdup( "Mesh" ), t, _time, 1 );
         }
 
@@ -237,201 +272,236 @@ class Solver : public SolverBase
             step();
             t++;
             // Output mesh state periodically
-            if ( write_freq && (0 == t % write_freq ))
+            if ( write_freq && ( 0 == t % write_freq ) )
             {
-                if constexpr (std::same_as<Approach::Stream, CommApproach>) {
-                    exec_space.fence(); // If we're doing I/O, we need to fence the 
-                                        // stream so that the data is up to date.
+                if constexpr ( std::same_as<Approach::Stream, CommApproach> )
+                {
+                    exec_space
+                        .fence(); // If we're doing I/O, we need to fence the
+                                  // stream so that the data is up to date.
                 }
                 _silo->siloWrite( strdup( "Mesh" ), t, _time, 1 );
             }
- 
-            if (tol > 0.0) {
-                converged = checkConvergence(tol);
+
+            if ( tol > 0.0 )
+            {
+                converged = checkConvergence( tol );
             }
         } while ( !converged && ( _time < t_max ) );
-        exec_space.fence(); // In case everything was able to be queued to stream.
+        exec_space
+            .fence(); // In case everything was able to be queued to stream.
     }
 
   private:
     /* Solver state variables */
     int _time;
-    
+
     std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
     IterationFunctor& _iter_func; // XXX Actually define this class some time
-    std::unique_ptr<ProblemManager<execution_space, communication_space, Dims>> _pm;
+    std::unique_ptr<ProblemManager<execution_space, communication_space, Dims>>
+        _pm;
     std::unique_ptr<SiloWriter<pm_type, Dims>> _silo;
 };
 
-template <class ExecutionSpace, class CommunicationSpace, 
-          unsigned long Dims, class IterationFunctor,
-          class CompApproach, class CommApproach>
-void Solver<ExecutionSpace, CommunicationSpace, Dims, IterationFunctor, CompApproach, CommApproach>::step()
-    requires (std::same_as<Approach::Flat, CompApproach> 
-              && (std::same_as<Approach::Host, CommApproach> 
-                  || std::same_as<Approach::Stream, CommApproach>))
+template <class ExecutionSpace, class CommunicationSpace, unsigned long Dims,
+          class IterationFunctor, class CompApproach, class CommApproach>
+void Solver<ExecutionSpace, CommunicationSpace, Dims, IterationFunctor,
+            CompApproach, CommApproach>::step()
+    requires( std::same_as<Approach::Flat, CompApproach> &&
+              (std::same_as<Approach::Host, CommApproach> ||
+               std::same_as<Approach::Stream, CommApproach>))
 {
     // 1. Get the data we need and then construct a functor to handle
-    // parallel computation on that 
+    // parallel computation on that
     auto local_grid = _pm->localGrid();
-    auto src_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
-                              Version::Current() ).view();
-    auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), 
-                              Version::Next() ).view();
+    auto src_view =
+        _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() )
+            .view();
+    auto dst_view =
+        _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() )
+            .view();
     auto exec_space = execution_space();
 
     // XXX Change this to a swap
-    _iter_func.setViews(src_view, dst_view);
+    _iter_func.setViews( src_view, dst_view );
 
-    // 2. Figure ouyt the portion of that data that we own and need to 
+    // 2. Figure ouyt the portion of that data that we own and need to
     // compute. Note the assumption that the Ghost data is already up
     // to date here.
-    auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
+    auto own_cells = _local_grid->indexSpace(
+        Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
-    // 3. Iterate over the space of indexes we own and apply the 
-    // functor in parallel to that space to calculate the 
+    // 3. Iterate over the space of indexes we own and apply the
+    // functor in parallel to that space to calculate the
     // output data
-    Cabana::Grid::grid_parallel_for("Game of Life Mesh Parallel Loop", 
-        exec_space, own_cells, _iter_func);
+    Cabana::Grid::grid_parallel_for( "Game of Life Mesh Parallel Loop",
+                                     exec_space, own_cells, _iter_func );
 
     // 4. Gather our ghost cells for the next time around from our
     // our neighbor's owned cells.
-    if constexpr (std::same_as<Approach::Host, CommApproach>) {
+    if constexpr ( std::same_as<Approach::Host, CommApproach> )
+    {
         exec_space.fence();
         _pm->gather( Version::Next() );
-    } else {
+    }
+    else
+    {
         _pm->enqueueGather( Version::Next() );
     }
 
     /* 5. Make the state we next state the current state and advance time*/
-    _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
+    _pm->advance( Cabana::Grid::Cell(), Field::Liveness() );
     _time++;
 }
 
-template <class ExecutionSpace, class CommunicationSpace,
-          unsigned long Dims, class IterationFunctor,
-          class CompApproach, class CommApproach>
+template <class ExecutionSpace, class CommunicationSpace, unsigned long Dims,
+          class IterationFunctor, class CompApproach, class CommApproach>
 template <std::size_t Blocks>
-void Solver<ExecutionSpace, CommunicationSpace, Dims, IterationFunctor, CompApproach, CommApproach>::step()
-  requires (std::same_as<Approach::Hierarchical<Blocks>, CompApproach>
-                 && (std::same_as<Approach::Host, CommApproach> 
-                     || std::same_as<Approach::Stream, CommApproach>))
+void Solver<ExecutionSpace, CommunicationSpace, Dims, IterationFunctor,
+            CompApproach, CommApproach>::step()
+    requires( std::same_as<Approach::Hierarchical<Blocks>, CompApproach> &&
+              (std::same_as<Approach::Host, CommApproach> ||
+               std::same_as<Approach::Stream, CommApproach>))
 {
     // 1. Get the data we need and then construct a functor to handle
-    // parallel computation on that 
+    // parallel computation on that
     auto local_grid = _pm->localGrid();
-    auto src_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() ).view();
-    auto dst_view = _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() ).view();
+    auto src_view =
+        _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Current() )
+            .view();
+    auto dst_view =
+        _pm->get( Cabana::Grid::Cell(), Field::Liveness(), Version::Next() )
+            .view();
 
-    // 2. Figure out the portion of that data that we own and need to 
+    // 2. Figure out the portion of that data that we own and need to
     // compute. Note the assumption that the Ghost data is already up
     // to date here.
-    auto own_cells = _local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
+    auto own_cells = _local_grid->indexSpace(
+        Cabana::Grid::Own(), Cabana::Grid::Cell(), Cabana::Grid::Local() );
 
-    // We use hierarchical parallelism here to enable partitioned communication along the boundary
-    // as blocks of tjhe mesh are computed. There is likely some computational cost to this.
-    
-    // 1. Determine the number of teams in the league (the league size), based on the block size 
-    // we want to communicate in each dimension. Start assuming square blocks.
-    int iextent = own_cells.extent(0), jextent = own_cells.extent(1);;
+    // We use hierarchical parallelism here to enable partitioned communication
+    // along the boundary as blocks of tjhe mesh are computed. There is likely
+    // some computational cost to this.
+
+    // 1. Determine the number of teams in the league (the league size), based
+    // on the block size we want to communicate in each dimension. Start
+    // assuming square blocks.
+    int iextent = own_cells.extent( 0 ), jextent = own_cells.extent( 1 );
+    ;
     int blocks_per_dim = Blocks;
-    int block_size = (iextent + blocks_per_dim - 1)/blocks_per_dim;
+    int block_size = ( iextent + blocks_per_dim - 1 ) / blocks_per_dim;
     int league_size = blocks_per_dim * blocks_per_dim;
-    int istart = own_cells.min(0), jstart = own_cells.min(1);
-    int iend = own_cells.max(0), jend = own_cells.max(1);
+    int istart = own_cells.min( 0 ), jstart = own_cells.min( 1 );
+    int iend = own_cells.max( 0 ), jend = own_cells.max( 1 );
     auto f = _iter_func;
     auto exec_space = execution_space();
 
-    typedef typename Kokkos::TeamPolicy<execution_space>::member_type member_type;
-    Kokkos::TeamPolicy<execution_space> mesh_policy(league_size, Kokkos::AUTO);
-    Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
-        KOKKOS_LAMBDA(member_type team_member) 
-    {
-        // Figure out the i/j pieces of the block this team member is responsible for
-        int league_rank = team_member.league_rank();
-        int itile = league_rank / blocks_per_dim,
-            jtile = league_rank % blocks_per_dim;
-        int ibase = istart + itile * block_size,
-            jbase = jstart + jtile * block_size;
-        int ilimit = std::min(ibase + block_size, iend),
-            jlimit = std::min(jbase + block_size, jend);
-        int iextent = ilimit - ibase,
-            jextent = jlimit - jbase;
+    typedef
+        typename Kokkos::TeamPolicy<execution_space>::member_type member_type;
+    Kokkos::TeamPolicy<execution_space> mesh_policy( league_size,
+                                                     Kokkos::AUTO );
+    Kokkos::parallel_for(
+        "Game of Life Mesh Parallel", mesh_policy,
+        KOKKOS_LAMBDA( member_type team_member ) {
+            // Figure out the i/j pieces of the block this team member is
+            // responsible for
+            int league_rank = team_member.league_rank();
+            int itile = league_rank / blocks_per_dim,
+                jtile = league_rank % blocks_per_dim;
+            int ibase = istart + itile * block_size,
+                jbase = jstart + jtile * block_size;
+            int ilimit = std::min( ibase + block_size, iend ),
+                jlimit = std::min( jbase + block_size, jend );
+            int iextent = ilimit - ibase, jextent = jlimit - jbase;
 
-        // 2. Now the team of threads iterates over the block it is responsible for. Each thread
-        // in the team may handle multiple indexes, depending on the size of the team.
-        auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
-        Kokkos::parallel_for(block, [&](int i, int j)
-        {
-            f(ibase + i, jbase + j);
-        });
+            // 2. Now the team of threads iterates over the block it is
+            // responsible for. Each thread in the team may handle multiple
+            // indexes, depending on the size of the team.
+            auto block =
+                Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(
+                    team_member, iextent, jextent );
+            Kokkos::parallel_for( block, [&]( int i, int j )
+                                  { f( ibase + i, jbase + j ); } );
 
-        // 3. Finally, any team-specific operations that need the block to be completed
-        // can be done by using a team_barrier, for example block-specific communication. 
-        // None is needed here since all communication is host or stream driven.
-        // team_member.team_barrier();
-    });
+            // 3. Finally, any team-specific operations that need the block to
+            // be completed can be done by using a team_barrier, for example
+            // block-specific communication. None is needed here since all
+            // communication is host or stream driven.
+            // team_member.team_barrier();
+        } );
 
     // 4. Gather our ghost cells for the next time around from our
     // our neighbor's owned cells.
-    if constexpr (std::same_as<Approach::Host, CommApproach>) {
+    if constexpr ( std::same_as<Approach::Host, CommApproach> )
+    {
         exec_space.fence();
         _pm->gather( Version::Next() );
-    } else {
+    }
+    else
+    {
         _pm->enqueueGather( Version::Next() );
     }
 
     /* 5. Switch the source and destination arrays and advance time*/
-    _pm->advance(Cabana::Grid::Cell(), Field::Liveness());
+    _pm->advance( Cabana::Grid::Cell(), Field::Liveness() );
     _time++;
 }
 
-template <class ExecutionSpace, int Dims, class CompApproach, class CommApproach, 
-          class IterationFunc, class InitFunc>
+template <class ExecutionSpace, int Dims, class CompApproach,
+          class CommApproach, class IterationFunc, class InitFunc>
 std::shared_ptr<SolverBase>
-createHaloSolver( std::array<int, Dims> global_num_cells, bool periodic, 
-		  std::string comm_backend, IterationFunc halo, InitFunc initializer)
+createHaloSolver( std::array<int, Dims> global_num_cells, bool periodic,
+                  std::string comm_backend, IterationFunc halo,
+                  InitFunc initializer )
 {
-    if (comm_backend.compare("mpi") == 0) {
+    if ( comm_backend.compare( "mpi" ) == 0 )
+    {
         return std::make_shared<
             Solver<ExecutionSpace, Cabana::CommSpace::Mpi, Dims, IterationFunc,
-		CompApproach, CommApproach>>(
-                global_num_cells, periodic, halo, initializer);
-    } else if (comm_backend.compare("mpi-advance") == 0) {
+                   CompApproach, CommApproach>>( global_num_cells, periodic,
+                                                 halo, initializer );
+    }
+    else if ( comm_backend.compare( "mpi-advance" ) == 0 )
+    {
 #ifdef Cabana_ENABLE_STREAM_TRIGGERING
         return std::make_shared<
-            Solver<ExecutionSpace, Cabana::CommSpace::MpiAdvance, Dims, IterationFunc,
-		CompApproach, CommApproach>>(
-                    global_num_cells, periodic, halo, initializer);
+            Solver<ExecutionSpace, Cabana::CommSpace::MpiAdvance, Dims,
+                   IterationFunc, CompApproach, CommApproach>>(
+            global_num_cells, periodic, halo, initializer );
 #else
         throw std::runtime_error( "MPI Advance Backend Not Enabled" );
 #endif
-    } else if (comm_backend.compare("mpich") == 0) {
+    }
+    else if ( comm_backend.compare( "mpich" ) == 0 )
+    {
 #ifdef Cabana_ENABLE_MPICH
         return std::make_shared<
-            Solver<ExecutionSpace, Cabana::CommSpace::Mpich, Dims, IterationFunc,
-		CompApproach, CommApproach>>(
-                global_num_cells, periodic, halo, initializer);
+            Solver<ExecutionSpace, Cabana::CommSpace::Mpich, Dims,
+                   IterationFunc, CompApproach, CommApproach>>(
+            global_num_cells, periodic, halo, initializer );
 #else
         throw std::runtime_error( "MPICH Backend Not Enabled" );
 #endif
-    } else if (comm_backend.compare("cray-mpi") == 0) {
+    }
+    else if ( comm_backend.compare( "cray-mpi" ) == 0 )
+    {
 #ifdef Cabana_ENABLE_CRAYMPI
         return std::make_shared<
-            Solver<ExecutionSpace, Cabana::CommSpace::CrayMpi, Dims, IterationFunc,
-		CompApproach, CommApproach>>(
-                global_num_cells, periodic, halo, initializer);
+            Solver<ExecutionSpace, Cabana::CommSpace::CrayMpi, Dims,
+                   IterationFunc, CompApproach, CommApproach>>(
+            global_num_cells, periodic, halo, initializer );
 #else
         throw std::runtime_error( "Cray MPI Backend Not Enabled" );
 #endif
-    } else {
-        throw std::runtime_error("invalid communication backed");
+    }
+    else
+    {
+        throw std::runtime_error( "invalid communication backed" );
         return nullptr;
     }
-} 
+}
 //---------------------------------------------------------------------------//
 
 } // end namespace CabanaGhost
 
 #endif // end CABANAGHOST_SOLVER_HPP
-

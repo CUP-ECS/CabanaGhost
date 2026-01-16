@@ -5,7 +5,7 @@ set(DEPENDS_ON
   MPI::MPI_CXX
   )
 
-if( Cabana_ENABLE_MPI_ADVANCE )
+if( Cabana_ENABLE_STREAM-TRIGGERING )
   list(APPEND DEPENDS_ON
     stream-triggering
   )

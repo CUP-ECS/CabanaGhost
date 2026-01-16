@@ -398,7 +398,7 @@ createHaloSolver( std::array<int, Dims> global_num_cells, bool periodic,
 		CompApproach, CommApproach>>(
                 global_num_cells, periodic, halo, initializer);
     } else if (comm_backend.compare("mpi-advance") == 0) {
-#ifdef Cabana_ENABLE_MPI_ADVANCE
+#ifdef Cabana_ENABLE_STREAM_TRIGGERING
         return std::make_shared<
             Solver<ExecutionSpace, Cabana::CommSpace::MpiAdvance, Dims, IterationFunc,
 		CompApproach, CommApproach>>(
@@ -416,7 +416,7 @@ createHaloSolver( std::array<int, Dims> global_num_cells, bool periodic,
         throw std::runtime_error( "MPICH Backend Not Enabled" );
 #endif
     } else if (comm_backend.compare("cray-mpi") == 0) {
-#ifdef Cabana_ENABLE_MPICH
+#ifdef Cabana_ENABLE_CRAYMPI
         return std::make_shared<
             Solver<ExecutionSpace, Cabana::CommSpace::CrayMpi, Dims, IterationFunc,
 		CompApproach, CommApproach>>(

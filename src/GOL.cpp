@@ -3,7 +3,7 @@
  * @author Patrick Bridges <pbridges@unm.edu>
  *
  * @section DESCRIPTION
- * 2 dimensional game of life with cabana-provided arrays, interation, and 
+ * 2 dimensional game of life with cabana-provided arrays, interation, and
  * halo exchange primitives
  */
 
@@ -13,13 +13,13 @@
 
 // Include Statements
 
-#include <Kokkos_Core.hpp>
 #include <Cabana_Core.hpp>
 #include <Cabana_Grid.hpp>
+#include <Kokkos_Core.hpp>
 
 #include <mpi.h>
 
-// And now 
+// And now
 #include "Solver.hpp"
 
 #if DEBUG
@@ -38,7 +38,7 @@ using namespace Cabana::Grid;
 // Short Args: n - Cell Count
 // x - On-node Parallelism ( Serial/Threaded/OpenMP/CUDA ),
 // t - Time Steps, F - Write Frequency
-static char* shortargs = (char*)"n:t:x:F:h";
+static char* shortargs = (char*)"n:t:x:F:c:h";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -46,6 +46,7 @@ static option longargs[] = {
     { "timesteps", required_argument, NULL, 't' },
     { "driver", required_argument, NULL, 'x' },
     { "write-freq", required_argument, NULL, 'F' },
+    { "comm-space", required_argument, NULL, 'c' },
     { "help", no_argument, NULL, 'j' },
     { 0, 0, 0, 0 } };
 
@@ -56,9 +57,10 @@ static option longargs[] = {
  */
 struct ClArgs
 {
-    std::array<int, 2> global_num_cells;          /**< Number of cells */
-    int t_final; /**< Ending time */
-    int write_freq;     /**< Write frequency */
+    std::array<int, 2> global_num_cells; /**< Number of cells */
+    int t_final;                         /**< Ending time */
+    int write_freq;                      /**< Write frequency */
+    std::string comm_space; /**< Which communication backend to use */
 };
 
 /**
@@ -74,10 +76,12 @@ void help( const int rank, char* progname )
         std::cout << std::left << std::setw( 10 ) << "-n" << std::setw( 40 )
                   << "Number of Cells (default 128)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
-                  << "NUmber of timesteps to simulate (default 4.0)" 
+                  << "NUmber of timesteps to simulate (default 4.0)"
                   << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-F" << std::setw( 40 )
                   << "Write Frequency (default 20)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-c" << std::setw( 40 )
+                  << "Communication Space (default mpi)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-h" << std::setw( 40 )
                   << "Print Help Message" << std::left << "\n";
     }
@@ -96,11 +100,11 @@ void help( const int rank, char* progname )
  */
 int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 {
-
     /// Set default values
     cl.t_final = 100;
     cl.write_freq = 0;
     cl.global_num_cells = { 128, 128 };
+    cl.comm_space = "mpi";
 
     int ch;
     // Now parse any arguments
@@ -116,6 +120,15 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 if ( rank == 0 )
                 {
                     std::cerr << "Invalid cell number argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            if ( cl.global_num_cells[0] % 8 != 0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "N must be a multiple of 8.\n";
                     help( rank, argv[0] );
                 }
                 exit( -1 );
@@ -146,6 +159,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 exit( -1 );
             }
             break;
+        case 'c':
+            cl.comm_space = optarg;
+            break;
         case 'h':
             help( rank, argv[0] );
             exit( 0 );
@@ -168,25 +184,24 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 // Initialize field to a constant quantity and velocity
 struct MeshInitFunc
 {
-    MeshInitFunc( )
-    {
-    };
+    MeshInitFunc() {};
 
     KOKKOS_INLINE_FUNCTION
     double operator()( int index[2], double coords[2] ) const
     {
         int i = coords[0], j = coords[1];
         double liveness;
-        /* We put a glider the in the middle of every 10 x 10 block. */
-        switch ((i % 10) * 10 + j % 10) {
-          case 33:
-          case 34:
-          case 44:
-          case 45:
-          case 53:
-            return 1.0; 
+        /* We put a glider the in the middle of every 8 x 8 block. */
+        switch ( ( i % 8 ) * 8 + j % 8 )
+        {
+        case 033:
+        case 034:
+        case 044:
+        case 045:
+        case 053:
+            return 1.0;
             break;
-          default:
+        default:
             return 0.0;
             break;
         }
@@ -194,34 +209,43 @@ struct MeshInitFunc
     };
 };
 
-struct GOL2DFunctor {
-    using view_type = Kokkos::View<double ***>;
+struct GOL2DFunctor
+{
+    using view_type = Kokkos::View<double***>;
     view_type _src_array, _dst_array;
 
-    void setViews(const view_type s, const view_type d) {
+    void setViews( const view_type s, const view_type d )
+    {
         _src_array = s;
-            _dst_array = d;
+        _dst_array = d;
     }
 
-    KOKKOS_INLINE_FUNCTION void operator()(int i, int j) const {
+    KOKKOS_INLINE_FUNCTION void operator()( int i, int j ) const
+    {
         double sum = 0.0;
         int ii, jj;
-        for (ii = -1; ii <= 1; ii++) {
-            for (jj = -1; jj <= 1; jj++) {
-                if ((ii == 0) && (jj == 0)) continue;
-                sum += _src_array(i + ii,j + jj, 0);
+        for ( ii = -1; ii <= 1; ii++ )
+        {
+            for ( jj = -1; jj <= 1; jj++ )
+            {
+                if ( ( ii == 0 ) && ( jj == 0 ) )
+                    continue;
+                sum += _src_array( i + ii, j + jj, 0 );
             }
         }
-        if (_src_array(i, j, 0) == 0.0) {
-            if ((sum > 2.99) && (sum < 3.01))
-                _dst_array(i, j, 0) = 1.0;
-            else 
-                _dst_array(i, j, 0) = 0.0;
-        } else {
-            if ((sum >= 1.99) && (sum <= 3.01))
-                _dst_array(i, j, 0) = 1.0;
-            else 
-                _dst_array(i, j, 0) = 0.0;
+        if ( _src_array( i, j, 0 ) == 0.0 )
+        {
+            if ( ( sum > 2.99 ) && ( sum < 3.01 ) )
+                _dst_array( i, j, 0 ) = 1.0;
+            else
+                _dst_array( i, j, 0 ) = 0.0;
+        }
+        else
+        {
+            if ( ( sum >= 1.99 ) && ( sum <= 3.01 ) )
+                _dst_array( i, j, 0 ) = 1.0;
+            else
+                _dst_array( i, j, 0 ) = 0.0;
         }
     };
     GOL2DFunctor() {}
@@ -254,21 +278,47 @@ int main( int argc, char* argv[] )
                   << "\n"; // Number of Cells
         std::cout << std::left << std::setw( 20 ) << "Total Simulation Time"
                   << ": " << std::setw( 8 ) << cl.t_final << "\n";
+        std::cout << std::left << std::setw( 20 ) << "Communication Backend"
+                  << ": " << std::setw( 8 ) << cl.comm_space << "\n";
         std::cout << std::left << std::setw( 20 ) << "Write Frequency"
                   << ": " << std::setw( 8 ) << cl.write_freq
                   << "\n"; // Steps between write
-        std::cout << "====================================\n";
+        std::cout << "====================================" << std::endl;
     }
 
+    Kokkos::Timer timer;
+    double t0, t1, t2, t3;
+    double sum1, sum2 = 0;
     // Call advection solver - put in a seperate scope so contained view object
     // leaves scope before we shutdown.
     {
-	using namespace CabanaGhost;
+        using namespace CabanaGhost;
         MeshInitFunc initializer;
         GOL2DFunctor gol2Dfunctor;
-        Solver<2, GOL2DFunctor, Approach::Flat, Approach::Host> 
-            solver( cl.global_num_cells, true, gol2Dfunctor, initializer );
-        solver.solve(cl.t_final, 0.0, cl.write_freq); 
+        // We use the stream triggered version here since we don't need
+        // convergence checks. As a result, the entire compute process is just
+        // enqueued to a stream if there's no I/O.
+        t0 = timer.seconds();
+        auto solver = createHaloSolver<Kokkos::DefaultExecutionSpace, 2,
+                                       Approach::Flat, Approach::Stream>(
+            cl.global_num_cells, true, cl.comm_space, gol2Dfunctor,
+            initializer );
+        t1 = timer.seconds();
+        sum1 = solver->computeSum();
+        t2 = timer.seconds();
+        solver->solve( cl.t_final, 0.0, cl.write_freq );
+        t3 = timer.seconds();
+        sum2 = solver->computeSum();
+    }
+
+    if ( rank == 0 )
+    {
+        if ( sum1 != sum2 )
+        {
+            std::cout << "Bad final sum: " << sum1 << " " << sum2 << std::endl;
+        }
+        std::cout << "Solver creation time: " << ( t1 - t0 ) << std::endl;
+        std::cout << "Solver solve time: " << ( t3 - t2 ) << std::endl;
     }
 
     // Shut things down

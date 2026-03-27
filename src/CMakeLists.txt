@@ -7,7 +7,7 @@ set(DEPENDS_ON
 
 if( Cabana_ENABLE_STREAM-TRIGGERING )
   list(APPEND DEPENDS_ON
-    stream-triggering
+    MPIAdvance::stream-triggering
   )
 endif()
   

@@ -57,7 +57,8 @@ class SolverBase
   public:
     virtual ~SolverBase() = default;
     virtual void solve( const int t_max, const double tol = 0.0,
-                        const int write_freq = 0 ) = 0;
+                        const int write_freq = 0,
+                        const int print_freq = 0 ) = 0;
     virtual double computeSum() = 0;
 };
 
@@ -247,7 +248,8 @@ class Solver : public SolverBase
     }
 
     virtual void solve( const int t_max, const double tol = 0.0,
-                        const int write_freq = 0 ) override
+                        const int write_freq = 0,
+                        const int print_freq = 0 ) override
     {
         int t = 0;
         int rank;
@@ -266,7 +268,7 @@ class Solver : public SolverBase
         // Start advancing time.
         do
         {
-            if ( 0 == rank )
+            if ( 0 == rank && print_freq > 0 && ( 0 == ( t % print_freq ) ) )
                 printf( "Step %d / %d\n", t, (int)t_max );
 
             step();

@@ -38,7 +38,7 @@ using namespace Cabana::Grid;
 // Short Args: n - Cell Count
 // x - On-node Parallelism ( Serial/Threaded/OpenMP/CUDA ),
 // t - Time Steps, F - Write Frequency
-static char* shortargs = (char*)"n:t:x:F:c:h";
+static char* shortargs = (char*)"n:t:x:F:c:p:h";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -47,6 +47,7 @@ static option longargs[] = {
     { "driver", required_argument, NULL, 'x' },
     { "write-freq", required_argument, NULL, 'F' },
     { "comm-space", required_argument, NULL, 'c' },
+    { "print-freq", required_argument, NULL, 'p' },
     { "help", no_argument, NULL, 'j' },
     { 0, 0, 0, 0 } };
 
@@ -60,6 +61,7 @@ struct ClArgs
     std::array<int, 2> global_num_cells; /**< Number of cells */
     int t_final;                         /**< Ending time */
     int write_freq;                      /**< Write frequency */
+    int print_freq;                      /**< Print frequency */
     std::string comm_space; /**< Which communication backend to use */
 };
 
@@ -79,7 +81,10 @@ void help( const int rank, char* progname )
                   << "NUmber of timesteps to simulate (default 4.0)"
                   << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-F" << std::setw( 40 )
-                  << "Write Frequency (default 20)" << std::left << "\n";
+                  << "Write Frequency (default 0)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-F" << std::setw( 40 )
+                  << "Print Frequency (default 1 [every timestep])" << std::left
+                  << "\n";
         std::cout << std::left << std::setw( 10 ) << "-c" << std::setw( 40 )
                   << "Communication Space (default mpi)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-h" << std::setw( 40 )
@@ -103,6 +108,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     /// Set default values
     cl.t_final = 100;
     cl.write_freq = 0;
+    cl.print_freq = 1;
     cl.global_num_cells = { 128, 128 };
     cl.comm_space = "mpi";
 
@@ -161,6 +167,18 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             break;
         case 'c':
             cl.comm_space = optarg;
+            break;
+        case 'p':
+            cl.print_freq = atoi( optarg );
+            if ( cl.write_freq < 0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid print frequency argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
             break;
         case 'h':
             help( rank, argv[0] );
@@ -306,24 +324,30 @@ int main( int argc, char* argv[] )
         t1 = timer.seconds();
         sum1 = solver->computeSum();
         t2 = timer.seconds();
-        solver->solve( cl.t_final, 0.0, cl.write_freq );
+        solver->solve( cl.t_final, 0.0, cl.write_freq, cl.print_freq );
         t3 = timer.seconds();
         sum2 = solver->computeSum();
     }
 
+    int rc = 0;
     if ( rank == 0 )
     {
         if ( sum1 != sum2 )
         {
             std::cout << "Bad final sum: " << sum1 << " " << sum2 << std::endl;
+            rc = 1;
         }
-        std::cout << "Solver creation time: " << ( t1 - t0 ) << std::endl;
-        std::cout << "Solver solve time: " << ( t3 - t2 ) << std::endl;
+        else
+        {
+            std::cout << "Solver creation time: " << ( t1 - t0 ) << std::endl;
+            std::cout << "Solver solve time: " << ( t3 - t2 ) << std::endl;
+            std::cout << sum1 << std::endl;
+        }
     }
 
     // Shut things down
     Kokkos::finalize(); // Finalize Kokkos
     MPI_Finalize();     // Finalize MPI
 
-    return 0;
+    return rc;
 };

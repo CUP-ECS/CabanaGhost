@@ -56,7 +56,7 @@ class SiloWriter
                            std::conditional_t<2 == Dims, value_type***, void>>;
     using owned_view_type =
         Kokkos::View<view_data_type, Kokkos::LayoutLeft,
-                     typename pm_type::cell_array_type::device_type>;
+                     typename pm_type::cell_array_type::memory_space>;
     owned_view_type allocateOwnedArray( Cabana::Grid::IndexSpace<Dims> d )
         requires( Dims == 3 )
     {
